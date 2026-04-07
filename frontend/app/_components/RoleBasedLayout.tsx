@@ -22,9 +22,7 @@ export default function RoleBasedLayout({ children }: RoleBasedLayoutProps) {
     
     // Route protection logic
     const isAuthPage = pathname?.startsWith('/login');
-    const isPublicPage = pathname === '/architecture';
-    
-    const needsAuth = !isAuthPage && !isPublicPage;
+    const needsAuth = !isAuthPage;
     
     if (needsAuth && !user && !token) {
       router.push('/login');

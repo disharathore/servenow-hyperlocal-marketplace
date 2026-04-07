@@ -13,12 +13,39 @@ declare global {
   }
 }
 
+interface Worker {
+  id: string;
+  name: string;
+  category_name: string;
+  hourly_rate: number;
+  rating: number;
+  rating_count: number;
+  is_background_verified: boolean;
+}
+
+interface Slot {
+  id: string;
+  date: string;
+  start_time: string;
+  end_time: string;
+}
+
+interface BookingResponse {
+  id: string;
+}
+
+interface RazorpayVerifyPayload {
+  razorpay_order_id: string;
+  razorpay_payment_id: string;
+  razorpay_signature: string;
+}
+
 export default function BookPage() {
   const { workerId } = useParams() as { workerId: string };
   const router = useRouter();
-  const [worker, setWorker] = useState<any>(null);
-  const [slots, setSlots] = useState<any[]>([]);
-  const [selectedSlot, setSelectedSlot] = useState<any>(null);
+  const [worker, setWorker] = useState<Worker | null>(null);
+  const [slots, setSlots] = useState<Slot[]>([]);
+  const [selectedSlot, setSelectedSlot] = useState<Slot | null>(null);
   const [address, setAddress] = useState('');
   const [addressQuery, setAddressQuery] = useState('');
   const [suggestions, setSuggestions] = useState<string[]>([]);
@@ -66,7 +93,7 @@ export default function BookPage() {
     );
   }, [addressQuery, mapsReady]);
 
-  const slotsByDate = slots.reduce((acc: Record<string, any[]>, slot: any) => {
+  const slotsByDate = slots.reduce((acc: Record<string, Slot[]>, slot) => {
     const d = slot.date.split('T')[0];
     if (!acc[d]) acc[d] = [];
     acc[d].push(slot);
@@ -79,7 +106,7 @@ export default function BookPage() {
     setLoading(true);
     try {
       const bookingRes = await bookingsApi.create({ worker_id: workerId, slot_id: selectedSlot.id, address, description });
-      const booking = bookingRes.data;
+      const booking = bookingRes.data as BookingResponse;
       const orderRes = await paymentsApi.createOrder(booking.id);
       const { order_id, amount, currency, key_id } = orderRes.data;
 
@@ -89,7 +116,7 @@ export default function BookPage() {
         currency,
         name: 'ServeNow',
         order_id,
-        handler: async (response: any) => {
+        handler: async (response: RazorpayVerifyPayload) => {
           await paymentsApi.verify({
             razorpay_order_id: response.razorpay_order_id,
             razorpay_payment_id: response.razorpay_payment_id,
@@ -103,8 +130,11 @@ export default function BookPage() {
       });
 
       rzp.open();
-    } catch (err: any) {
-      setError(err.response?.data?.error || 'Booking failed. Try again.');
+    } catch (err: unknown) {
+      const message = typeof err === 'object' && err !== null && 'response' in err
+        ? (err as { response?: { data?: { error?: string } } }).response?.data?.error
+        : undefined;
+      setError(message || 'Booking failed. Try again.');
       setLoading(false);
     }
   }
@@ -135,11 +165,11 @@ export default function BookPage() {
           <h2 className="font-semibold text-gray-900 mb-3 flex items-center gap-2"><Calendar size={16} className="text-blue-600" /> Select date and time</h2>
           {Object.keys(slotsByDate).length === 0 ? <p className="text-gray-400 text-sm">No slots available.</p> : (
             <div className="space-y-4">
-              {Object.entries(slotsByDate).map(([date, dateSlots]: [string, any[]]) => (
+              {Object.entries(slotsByDate).map(([date, dateSlots]) => (
                 <div key={date}>
                   <p className="text-xs font-medium text-gray-500 mb-2">{format(new Date(date), 'EEE, dd MMM yyyy')}</p>
                   <div className="flex flex-wrap gap-2">
-                    {dateSlots.map((slot: any) => (
+                    {dateSlots.map((slot) => (
                       <button key={slot.id} onClick={() => setSelectedSlot(slot)} className={`px-3 py-2 rounded-lg text-sm font-medium border transition-all ${selectedSlot?.id === slot.id ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-200 hover:border-blue-300'}`}>
                         {slot.start_time.slice(0, 5)} - {slot.end_time.slice(0, 5)}
                       </button>

@@ -6,14 +6,41 @@ import { connectSocket } from '@/lib/socket';
 import { useRouter } from 'next/navigation';
 import { MapPin, Clock, CheckCircle, ToggleLeft, ToggleRight, Phone } from 'lucide-react';
 
+interface Booking {
+  id: string;
+  status: 'pending' | 'accepted' | 'in_progress' | 'completed' | 'cancelled';
+  category_icon: string;
+  category_name: string;
+  customer_name: string;
+  customer_phone: string;
+  amount: number;
+  scheduled_at: string;
+  address: string;
+}
+
+interface Earnings {
+  total_jobs: number;
+  total_earnings: number | string;
+  this_month: number | string;
+  this_week: number | string;
+}
+
+interface BookingCardProps {
+  booking: Booking;
+  onAccept?: () => void;
+  onReject?: () => void;
+  onStart?: () => void;
+  onComplete?: () => void;
+}
+
 export default function WorkerDashboard() {
   const router = useRouter();
   const { user } = useAuthStore();
-  const [bookings, setBookings] = useState<any[]>([]);
-  const [earnings, setEarnings] = useState<any>(null);
+  const [bookings, setBookings] = useState<Booking[]>([]);
+  const [earnings, setEarnings] = useState<Earnings | null>(null);
   const [available, setAvailable] = useState(true);
   const [loading, setLoading] = useState(true);
-  const bookingsRef = useRef<any[]>([]);
+  const bookingsRef = useRef<Booking[]>([]);
   const locationIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
@@ -27,14 +54,14 @@ export default function WorkerDashboard() {
 
     const loadDashboard = async () => {
       const [bRes, eRes] = await Promise.all([bookingsApi.list(), jobsApi.earnings()]);
-      setBookings(bRes.data);
-      setEarnings(eRes.data);
+      setBookings(bRes.data as Booking[]);
+      setEarnings(eRes.data as Earnings);
       setLoading(false);
     };
 
     loadDashboard();
     const socket = connectSocket();
-    socket.on('new_booking', () => bookingsApi.list().then(r => setBookings(r.data)));
+    socket.on('new_booking', () => bookingsApi.list().then(r => setBookings(r.data as Booking[])));
     return () => { socket.off('new_booking'); };
   }, [user, router]);
 
@@ -85,7 +112,7 @@ export default function WorkerDashboard() {
       await actions[action](bookingId);
     }
     const res = await bookingsApi.list();
-    setBookings(res.data);
+    setBookings(res.data as Booking[]);
   }
 
   const pending = bookings.filter(b => b.status === 'pending');
@@ -110,16 +137,16 @@ export default function WorkerDashboard() {
             ))}
           </div>
         )}
-        {pending.length > 0 && <section><h2 className="font-semibold text-gray-900 mb-2">New requests ({pending.length})</h2><div className="space-y-3">{pending.map((b:any) => <BookingCard key={b.id} booking={b} onAccept={() => handleAction(b.id,'accept')} onReject={() => handleAction(b.id,'reject')} />)}</div></section>}
-        {active.length > 0 && <section><h2 className="font-semibold text-gray-900 mb-2">Active jobs</h2><div className="space-y-3">{active.map((b:any) => <BookingCard key={b.id} booking={b} onStart={b.status==='accepted'?() => handleAction(b.id,'start'):undefined} onComplete={b.status==='in_progress'?() => handleAction(b.id,'complete'):undefined} />)}</div></section>}
-        {done.length > 0 && <section><h2 className="font-semibold text-gray-900 mb-2">Recent completions</h2><div className="space-y-2">{done.map((b:any) => <div key={b.id} className="card p-3 flex items-center gap-3 opacity-75"><CheckCircle size={18} className="text-green-500 flex-shrink-0" /><div className="flex-1 min-w-0"><p className="text-sm font-medium text-gray-700 truncate">{b.customer_name}</p><p className="text-xs text-gray-400">{new Date(b.scheduled_at).toLocaleDateString('en-IN')}</p></div><span className="text-sm font-bold text-gray-700">₹{Math.floor(b.amount/100)}</span></div>)}</div></section>}
+        {pending.length > 0 && <section><h2 className="font-semibold text-gray-900 mb-2">New requests ({pending.length})</h2><div className="space-y-3">{pending.map((b) => <BookingCard key={b.id} booking={b} onAccept={() => handleAction(b.id,'accept')} onReject={() => handleAction(b.id,'reject')} />)}</div></section>}
+        {active.length > 0 && <section><h2 className="font-semibold text-gray-900 mb-2">Active jobs</h2><div className="space-y-3">{active.map((b) => <BookingCard key={b.id} booking={b} onStart={b.status==='accepted'?() => handleAction(b.id,'start'):undefined} onComplete={b.status==='in_progress'?() => handleAction(b.id,'complete'):undefined} />)}</div></section>}
+        {done.length > 0 && <section><h2 className="font-semibold text-gray-900 mb-2">Recent completions</h2><div className="space-y-2">{done.map((b) => <div key={b.id} className="card p-3 flex items-center gap-3 opacity-75"><CheckCircle size={18} className="text-green-500 flex-shrink-0" /><div className="flex-1 min-w-0"><p className="text-sm font-medium text-gray-700 truncate">{b.customer_name}</p><p className="text-xs text-gray-400">{new Date(b.scheduled_at).toLocaleDateString('en-IN')}</p></div><span className="text-sm font-bold text-gray-700">₹{Math.floor(b.amount/100)}</span></div>)}</div></section>}
         {pending.length===0 && active.length===0 && !loading && <div className="text-center py-16 text-gray-400"><p className="text-4xl mb-3">⏳</p><p className="font-medium">No pending bookings</p><p className="text-sm mt-1">Stay online to receive requests</p></div>}
       </div>
     </div>
   );
 }
 
-function BookingCard({ booking, onAccept, onReject, onStart, onComplete }: { booking: any; onAccept?: ()=>void; onReject?: ()=>void; onStart?: ()=>void; onComplete?: ()=>void; }) {
+function BookingCard({ booking, onAccept, onReject, onStart, onComplete }: BookingCardProps) {
   const [loading, setLoading] = useState(false);
   async function handle(fn: ()=>void) { setLoading(true); await fn(); setLoading(false); }
   return (

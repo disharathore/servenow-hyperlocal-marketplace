@@ -7,9 +7,20 @@ import { useRouter } from 'next/navigation';
 
 const STATUS_COLORS: Record<string,string> = { pending:'badge-pending', accepted:'badge-accepted', in_progress:'badge-in_progress', completed:'badge-completed', cancelled:'badge-cancelled' };
 
+interface Booking {
+  id: string;
+  status: string;
+  category_icon: string;
+  category_name: string;
+  worker_name: string;
+  scheduled_at: string;
+  amount: number;
+  payment_status: string;
+}
+
 export default function DashboardPage() {
   const router = useRouter();
-  const [bookings, setBookings] = useState<any[]>([]);
+  const [bookings, setBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [filter, setFilter] = useState('');
@@ -19,7 +30,7 @@ export default function DashboardPage() {
     setError('');
     try {
       const r = await bookingsApi.list(filter||undefined);
-      setBookings(r.data);
+      setBookings(r.data as Booking[]);
     } catch {
       setError('Unable to load your bookings. Please try again.');
     } finally {
@@ -54,7 +65,7 @@ export default function DashboardPage() {
             </div>
           )
           : bookings.length===0 ? <div className="text-center py-16 text-gray-400"><p className="text-4xl mb-3">📋</p><p className="font-medium">No bookings yet</p><Link href="/" className="btn-primary inline-block mt-4 text-sm">Book a Service</Link></div>
-          : <div className="space-y-3">{bookings.map((b:any) => (
+          : <div className="space-y-3">{bookings.map((b) => (
             <Link key={b.id} href={`/track/${b.id}`} className="card p-4 block hover:shadow-md transition-shadow">
               <div className="flex items-start justify-between mb-2">
                 <div className="flex items-center gap-2"><span className="text-xl">{b.category_icon}</span><div><p className="font-semibold text-gray-900">{b.category_name}</p><p className="text-xs text-gray-400">{b.worker_name}</p></div></div>

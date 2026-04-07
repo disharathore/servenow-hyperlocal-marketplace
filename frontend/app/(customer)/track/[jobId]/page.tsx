@@ -9,12 +9,26 @@ import { Clock, MapPin, Phone, Star } from 'lucide-react';
 const STATUS_STEPS = ['pending','accepted','in_progress','completed'];
 const STATUS_LABELS: Record<string,string> = { pending:'Waiting for worker to accept', accepted:'Worker accepted — heading your way', in_progress:'Worker is at your location', completed:'Job completed! 🎉', cancelled:'Booking cancelled' };
 
+interface Booking {
+  id: string;
+  status: string;
+  lat: number | null;
+  lng: number | null;
+  worker_lat: number | null;
+  worker_lng: number | null;
+  worker_name: string;
+  worker_phone: string;
+  worker_rating: number;
+  address: string;
+  scheduled_at: string;
+}
+
 export default function TrackPage() {
   const { jobId } = useParams() as { jobId: string };
   const mapRef = useRef<HTMLDivElement>(null);
-  const mapInstance = useRef<any>(null);
-  const workerMarker = useRef<any>(null);
-  const [booking, setBooking] = useState<any>(null);
+  const mapInstance = useRef<google.maps.Map | null>(null);
+  const workerMarker = useRef<google.maps.Marker | null>(null);
+  const [booking, setBooking] = useState<Booking | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -23,7 +37,7 @@ export default function TrackPage() {
     setError('');
     try {
       const r = await bookingsApi.get(jobId);
-      setBooking(r.data);
+      setBooking(r.data as Booking);
     } catch {
       setError('Unable to load tracking right now. Please try again.');
     } finally {
@@ -60,8 +74,8 @@ export default function TrackPage() {
     const socket = connectSocket();
     socket.emit('track:join', { booking_id: jobId });
     socket.on('worker:location', (data: { lat: number; lng: number }) => updateWorker(data.lat, data.lng));
-    socket.on('job_started', () => setBooking((b: any) => b ? {...b, status:'in_progress'} : b));
-    socket.on('job_completed', () => setBooking((b: any) => b ? {...b, status:'completed'} : b));
+    socket.on('job_started', () => setBooking((b) => b ? {...b, status:'in_progress'} : b));
+    socket.on('job_completed', () => setBooking((b) => b ? {...b, status:'completed'} : b));
     return () => { socket.off('worker:location'); socket.off('job_started'); socket.off('job_completed'); };
   }, [jobId]);
 
