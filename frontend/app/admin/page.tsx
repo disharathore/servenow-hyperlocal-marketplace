@@ -7,13 +7,56 @@ import { CheckCircle, Clock, AlertCircle, TrendingUp, ShieldCheck } from 'lucide
 
 type Tab = 'overview'|'bookings'|'workers'|'disputes';
 
+interface AdminStats {
+  bookings: {
+    today: number;
+    completed: number;
+    cancelled: number;
+    pending: number;
+    in_progress: number;
+    total: number;
+  };
+  revenue: {
+    total_gmv: number | string;
+    this_month_gmv: number | string;
+  };
+}
+
+interface AdminBooking {
+  id: string;
+  category_name: string;
+  customer_name: string;
+  worker_name: string;
+  status: string;
+  amount: number;
+  scheduled_at: string;
+}
+
+interface AdminWorker {
+  id: string;
+  name: string;
+  category_name: string;
+  rating: number;
+  total_jobs: number;
+  is_background_verified: boolean;
+  is_available: boolean;
+}
+
+interface AdminDispute {
+  id: string;
+  category_name: string;
+  customer_name: string;
+  worker_name: string;
+  cancellation_reason: string | null;
+}
+
 export default function AdminPage() {
   const router = useRouter();
   const { user } = useAuthStore();
-  const [stats, setStats] = useState<any>(null);
-  const [bookings, setBookings] = useState<any[]>([]);
-  const [workers, setWorkers] = useState<any[]>([]);
-  const [disputes, setDisputes] = useState<any[]>([]);
+  const [stats, setStats] = useState<AdminStats | null>(null);
+  const [bookings, setBookings] = useState<AdminBooking[]>([]);
+  const [workers, setWorkers] = useState<AdminWorker[]>([]);
+  const [disputes, setDisputes] = useState<AdminDispute[]>([]);
   const [tab, setTab] = useState<Tab>('overview');
   const [loading, setLoading] = useState(true);
   const [pageError, setPageError] = useState('');
@@ -25,7 +68,7 @@ export default function AdminPage() {
     setPageError('');
     try {
       const r = await adminApi.stats();
-      setStats(r.data);
+      setStats(r.data as AdminStats);
     } catch {
       setPageError('Unable to load admin stats. Please retry.');
     } finally {
@@ -45,15 +88,15 @@ export default function AdminPage() {
     try {
       if (nextTab === 'bookings' && bookings.length === 0) {
         const r = await adminApi.bookings();
-        setBookings(r.data);
+        setBookings(r.data as AdminBooking[]);
       }
       if (nextTab === 'workers' && workers.length === 0) {
         const r = await adminApi.workers();
-        setWorkers(r.data);
+        setWorkers(r.data as AdminWorker[]);
       }
       if (nextTab === 'disputes' && disputes.length === 0) {
         const r = await adminApi.disputes();
-        setDisputes(r.data);
+        setDisputes(r.data as AdminDispute[]);
       }
     } catch {
       setTabError(`Unable to load ${nextTab}. Please retry.`);
@@ -104,9 +147,9 @@ export default function AdminPage() {
             ))}
           </div>
         </div>}
-        {tab==='bookings' && <div className="space-y-3">{bookings.map((b:any) => <div key={b.id} className="card p-4"><div className="flex items-center justify-between mb-2"><div><p className="font-semibold text-gray-900 text-sm">{b.category_name}</p><p className="text-xs text-gray-400">{b.customer_name} → {b.worker_name}</p></div><div className="text-right"><span className={`badge badge-${b.status}`}>{b.status.replace('_',' ')}</span><p className="text-xs text-gray-400 mt-1">₹{Math.floor(b.amount/100)}</p></div></div><p className="text-xs text-gray-400">{new Date(b.scheduled_at).toLocaleString('en-IN')} · ID: {b.id.slice(0,8)}</p></div>)}</div>}
-        {tab==='workers' && <div className="space-y-3">{workers.map((w:any) => <div key={w.id} className="card p-4 flex items-center gap-4"><div className="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-100 to-blue-200 flex items-center justify-center text-lg font-bold text-blue-600 flex-shrink-0">{w.name[0]}</div><div className="flex-1 min-w-0"><div className="flex items-center gap-1.5"><p className="font-semibold text-gray-900 text-sm">{w.name}</p>{w.is_background_verified&&<ShieldCheck size={14} className="text-green-500" />}</div><p className="text-xs text-gray-400">{w.category_name} · ⭐ {w.rating} · {w.total_jobs} jobs</p></div><div className="flex flex-col items-end gap-2"><span className={`text-xs font-medium ${w.is_available?'text-green-600':'text-gray-400'}`}>{w.is_available?'Online':'Offline'}</span>{!w.is_background_verified&&<button onClick={()=>adminApi.verifyWorker(w.id).then(()=>setWorkers(ws=>ws.map(x=>x.id===w.id?{...x,is_background_verified:true}:x)))} className="text-xs bg-green-50 text-green-700 border border-green-200 px-2 py-1 rounded-lg">Verify</button>}</div></div>)}</div>}
-        {tab==='disputes' && <div className="space-y-3">{disputes.length === 0 ? <div className="card p-4 text-sm text-gray-500">No open disputes.</div> : disputes.map((d:any) => <div key={d.id} className="card p-4"><div className="flex items-center justify-between"><div><p className="font-semibold text-sm text-gray-900">{d.category_name}</p><p className="text-xs text-gray-500">{d.customer_name} vs {d.worker_name}</p></div><span className="badge bg-yellow-100 text-yellow-700">disputed</span></div><p className="text-xs text-gray-500 mt-2">Reason: {d.cancellation_reason || 'Customer raised issue'}</p><div className="mt-3 flex gap-2"><button onClick={() => adminApi.resolveDispute(d.id, 'completed').then(() => setDisputes((prev) => prev.filter((x) => x.id !== d.id)))} className="btn-primary text-sm py-2">Resolve as Completed</button><button onClick={() => adminApi.resolveDispute(d.id, 'cancelled').then(() => setDisputes((prev) => prev.filter((x) => x.id !== d.id)))} className="btn-secondary text-sm py-2">Resolve as Cancelled</button></div></div>)}</div>}
+        {tab==='bookings' && <div className="space-y-3">{bookings.map((b) => <div key={b.id} className="card p-4"><div className="flex items-center justify-between mb-2"><div><p className="font-semibold text-gray-900 text-sm">{b.category_name}</p><p className="text-xs text-gray-400">{b.customer_name} → {b.worker_name}</p></div><div className="text-right"><span className={`badge badge-${b.status}`}>{b.status.replace('_',' ')}</span><p className="text-xs text-gray-400 mt-1">₹{Math.floor(b.amount/100)}</p></div></div><p className="text-xs text-gray-400">{new Date(b.scheduled_at).toLocaleString('en-IN')} · ID: {b.id.slice(0,8)}</p></div>)}</div>}
+        {tab==='workers' && <div className="space-y-3">{workers.map((w) => <div key={w.id} className="card p-4 flex items-center gap-4"><div className="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-100 to-blue-200 flex items-center justify-center text-lg font-bold text-blue-600 flex-shrink-0">{w.name[0]}</div><div className="flex-1 min-w-0"><div className="flex items-center gap-1.5"><p className="font-semibold text-gray-900 text-sm">{w.name}</p>{w.is_background_verified&&<ShieldCheck size={14} className="text-green-500" />}</div><p className="text-xs text-gray-400">{w.category_name} · ⭐ {w.rating} · {w.total_jobs} jobs</p></div><div className="flex flex-col items-end gap-2"><span className={`text-xs font-medium ${w.is_available?'text-green-600':'text-gray-400'}`}>{w.is_available?'Online':'Offline'}</span>{!w.is_background_verified&&<button onClick={()=>adminApi.verifyWorker(w.id).then(()=>setWorkers(ws=>ws.map(x=>x.id===w.id?{...x,is_background_verified:true}:x)))} className="text-xs bg-green-50 text-green-700 border border-green-200 px-2 py-1 rounded-lg">Verify</button>}</div></div>)}</div>}
+        {tab==='disputes' && <div className="space-y-3">{disputes.length === 0 ? <div className="card p-4 text-sm text-gray-500">No open disputes.</div> : disputes.map((d) => <div key={d.id} className="card p-4"><div className="flex items-center justify-between"><div><p className="font-semibold text-sm text-gray-900">{d.category_name}</p><p className="text-xs text-gray-500">{d.customer_name} vs {d.worker_name}</p></div><span className="badge bg-yellow-100 text-yellow-700">disputed</span></div><p className="text-xs text-gray-500 mt-2">Reason: {d.cancellation_reason || 'Customer raised issue'}</p><div className="mt-3 flex gap-2"><button onClick={() => adminApi.resolveDispute(d.id, 'completed').then(() => setDisputes((prev) => prev.filter((x) => x.id !== d.id)))} className="btn-primary text-sm py-2">Resolve as Completed</button><button onClick={() => adminApi.resolveDispute(d.id, 'cancelled').then(() => setDisputes((prev) => prev.filter((x) => x.id !== d.id)))} className="btn-secondary text-sm py-2">Resolve as Cancelled</button></div></div>)}</div>}
       </main>
     </div>
   );

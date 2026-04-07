@@ -4,11 +4,19 @@ import AppWrapperLayout from '@/app/_components/AppWrapperLayout';
 import { servicesApi } from '@/lib/api';
 import Link from 'next/link';
 
+interface ServiceCategory {
+  id: string;
+  slug: string;
+  icon: string;
+  name: string;
+  base_price: number;
+}
+
 export default function MyServicesPage() {
-  const [categories, setCategories] = useState<any[]>([]);
+  const [categories, setCategories] = useState<ServiceCategory[]>([]);
 
   useEffect(() => {
-    servicesApi.categories().then((r) => setCategories(r.data));
+    servicesApi.categories().then((r) => setCategories(r.data as ServiceCategory[]));
   }, []);
 
   return (
