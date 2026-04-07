@@ -108,6 +108,12 @@ If needed, you can run cleanup manually:
 npm run dev:clean
 ```
 
+Run only one startup mode at a time:
+
+- Use `npm run dev` for full stack.
+- Use `npm run dev:backend` or `npm run dev:frontend` for single service debugging.
+- Avoid launching `backend` separately if `npm run dev` is already running.
+
 ### 1. Clone and install
 
 ```bash
