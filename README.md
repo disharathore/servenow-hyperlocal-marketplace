@@ -91,6 +91,16 @@ ServeNow/
 
 ## Quick Start
 
+### 0. Workspace shortcut (recommended)
+
+```bash
+cd ServeNow
+npm install
+npm run dev
+```
+
+This starts backend and frontend together from the repository root.
+
 ### 1. Clone and install
 
 ```bash
@@ -124,6 +134,10 @@ cd backend && npm run dev
 # Terminal 2 — frontend
 cd frontend && npm run dev
 ```
+
+### 5. Demo readiness checklist
+
+Run through [DEMO_CHECKLIST.md](DEMO_CHECKLIST.md) before sharing with recruiters/interviewers.
 
 ---
 
