@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { bookingsApi, jobsApi } from '@/lib/api';
 import { useAuthStore } from '@/lib/store';
 import { connectSocket } from '@/lib/socket';
@@ -13,20 +13,43 @@ export default function WorkerDashboard() {
   const [earnings, setEarnings] = useState<any>(null);
   const [available, setAvailable] = useState(true);
   const [loading, setLoading] = useState(true);
+  const bookingsRef = useRef<any[]>([]);
+
+  useEffect(() => {
+    bookingsRef.current = bookings;
+  }, [bookings]);
 
   useEffect(() => {
     if (!user) { router.push('/login'); return; }
     if (user.role !== 'worker') { router.push('/'); return; }
     if (!user.worker_profile_id) { router.push('/worker/setup'); return; }
-    Promise.all([bookingsApi.list(), jobsApi.earnings()]).then(([bRes, eRes]) => { setBookings(bRes.data); setEarnings(eRes.data); setLoading(false); });
+
+    const loadDashboard = async () => {
+      const [bRes, eRes] = await Promise.all([bookingsApi.list(), jobsApi.earnings()]);
+      setBookings(bRes.data);
+      setEarnings(eRes.data);
+      setLoading(false);
+    };
+
+    loadDashboard();
     const socket = connectSocket();
     socket.on('new_booking', () => bookingsApi.list().then(r => setBookings(r.data)));
     const locationInterval = setInterval(() => {
-      const activeBooking = bookings.find((b) => ['accepted', 'in_progress'].includes(b.status));
-      navigator.geolocation.getCurrentPosition(pos => socket.emit('worker:location', { lat: pos.coords.latitude, lng: pos.coords.longitude, booking_id: activeBooking?.id }));
+      const savedSettings = localStorage.getItem('sn_settings');
+      if (savedSettings) {
+        try {
+          const parsed = JSON.parse(savedSettings);
+          if (parsed.locationShare === false) return;
+        } catch {
+          // Ignore malformed local settings and continue with default behavior.
+        }
+      }
+      const activeBooking = bookingsRef.current.find((b) => ['accepted', 'in_progress'].includes(b.status));
+      if (!activeBooking) return;
+      navigator.geolocation.getCurrentPosition(pos => socket.emit('worker:location', { lat: pos.coords.latitude, lng: pos.coords.longitude, booking_id: activeBooking.id }));
     }, 15000);
     return () => { socket.off('new_booking'); clearInterval(locationInterval); };
-  }, [user, router, bookings]);
+  }, [user, router]);
 
   async function toggleAvailability() { const socket = connectSocket(); socket.emit('worker:availability', { available: !available }); setAvailable(!available); }
 

@@ -10,13 +10,34 @@ interface NotificationItem {
   createdAt: string;
 }
 
+const STORAGE_KEY = 'sn_notifications';
+const COUNT_KEY = 'sn_notifications_unread_count';
+
 export default function NotificationsPage() {
   const [items, setItems] = useState<NotificationItem[]>([]);
 
   useEffect(() => {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved) {
+      try {
+        setItems(JSON.parse(saved));
+      } catch {
+        localStorage.removeItem(STORAGE_KEY);
+      }
+    }
+    localStorage.setItem(COUNT_KEY, '0');
+    window.dispatchEvent(new Event('sn-notification-count-updated'));
+
     const socket = connectSocket();
     const add = (title: string, description: string) => {
-      setItems((prev) => [{ id: crypto.randomUUID(), title, description, createdAt: new Date().toISOString() }, ...prev]);
+      setItems((prev) => {
+        const next = [{ id: crypto.randomUUID(), title, description, createdAt: new Date().toISOString() }, ...prev];
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+        const unread = Number(localStorage.getItem(COUNT_KEY) || '0') + 1;
+        localStorage.setItem(COUNT_KEY, String(unread));
+        window.dispatchEvent(new Event('sn-notification-count-updated'));
+        return next;
+      });
     };
 
     socket.on('new_booking', () => add('New job request', 'A customer requested your service.'));
@@ -34,10 +55,22 @@ export default function NotificationsPage() {
     };
   }, []);
 
+  const clearAll = () => {
+    setItems([]);
+    localStorage.removeItem(STORAGE_KEY);
+    localStorage.setItem(COUNT_KEY, '0');
+    window.dispatchEvent(new Event('sn-notification-count-updated'));
+  };
+
   return (
     <AppWrapperLayout>
       <div className="max-w-2xl mx-auto px-4 py-8">
-        <h1 className="text-2xl font-bold text-gray-900 mb-4">Notifications</h1>
+        <div className="flex items-center justify-between mb-4">
+          <h1 className="text-2xl font-bold text-gray-900">Notifications</h1>
+          <button type="button" onClick={clearAll} disabled={items.length === 0} className="text-sm text-red-600 disabled:text-gray-300">
+            Clear all
+          </button>
+        </div>
         <div className="space-y-3">
           {items.length === 0 && <div className="card p-6 text-sm text-gray-500">No notifications yet.</div>}
           {items.map((n) => (

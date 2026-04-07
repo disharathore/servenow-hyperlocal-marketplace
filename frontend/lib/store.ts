@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { disconnectSocket } from './socket';
 interface User {
   id: string;
   phone: string;
@@ -18,6 +19,10 @@ interface AuthStore { user: User|null; token: string|null; setAuth: (u: User, t:
 export const useAuthStore = create<AuthStore>()(persist((set) => ({
   user: null, token: null,
   setAuth: (user, token) => { localStorage.setItem('sn_token', token); set({ user, token }); },
-  clearAuth: () => { localStorage.removeItem('sn_token'); set({ user: null, token: null }); },
+  clearAuth: () => {
+    localStorage.removeItem('sn_token');
+    disconnectSocket();
+    set({ user: null, token: null });
+  },
   updateUser: (updates) => set(s => ({ user: s.user ? { ...s.user, ...updates } : null })),
 }), { name: 'sn_auth', partialize: s => ({ user: s.user, token: s.token }) }));

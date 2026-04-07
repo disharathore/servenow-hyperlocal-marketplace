@@ -8,6 +8,10 @@ export default function InvoicePage() {
   const { bookingId } = useParams() as { bookingId: string };
   const [booking, setBooking] = useState<any>(null);
 
+  const totalPaid = booking ? booking.amount / 100 : 0;
+  const baseAmount = totalPaid ? totalPaid / 1.18 : 0;
+  const gstAmount = totalPaid - baseAmount;
+
   useEffect(() => {
     bookingsApi.get(bookingId).then((r) => setBooking(r.data));
   }, [bookingId]);
@@ -28,9 +32,9 @@ export default function InvoicePage() {
           </div>
 
           <div className="mt-6 border-t pt-4 space-y-2 text-sm">
-            <div className="flex justify-between"><span>Base amount</span><span>₹{booking ? Math.floor(booking.amount / 100) : 0}</span></div>
-            <div className="flex justify-between"><span>GST (18%)</span><span>₹{booking ? Math.round((booking.amount / 100) * 0.18) : 0}</span></div>
-            <div className="flex justify-between font-bold text-base"><span>Total paid</span><span>₹{booking ? Math.round((booking.amount / 100) * 1.18) : 0}</span></div>
+            <div className="flex justify-between"><span>Base amount</span><span>₹{baseAmount.toFixed(2)}</span></div>
+            <div className="flex justify-between"><span>GST (18%, inclusive)</span><span>₹{gstAmount.toFixed(2)}</span></div>
+            <div className="flex justify-between font-bold text-base"><span>Total paid</span><span>₹{totalPaid.toFixed(2)}</span></div>
           </div>
         </div>
       </div>

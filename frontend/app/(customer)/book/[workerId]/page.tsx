@@ -4,6 +4,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { servicesApi, bookingsApi, paymentsApi } from '@/lib/api';
 import { Star, MapPin, ArrowLeft, Calendar, CheckCircle } from 'lucide-react';
 import { format } from 'date-fns';
+import { Loader } from '@googlemaps/js-api-loader';
 
 declare global {
   interface Window {
@@ -22,6 +23,7 @@ export default function BookPage() {
   const [addressQuery, setAddressQuery] = useState('');
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [description, setDescription] = useState('');
+  const [mapsReady, setMapsReady] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -36,19 +38,22 @@ export default function BookPage() {
     rzpScript.async = true;
     document.body.appendChild(rzpScript);
 
-    const mapsScript = document.createElement('script');
-    mapsScript.src = `https://maps.googleapis.com/maps/api/js?key=${process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY}&libraries=places`;
-    mapsScript.async = true;
-    document.body.appendChild(mapsScript);
+    const mapsLoader = new Loader({
+      apiKey: process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY || '',
+      libraries: ['places'],
+      version: 'weekly',
+    });
+    mapsLoader.load()
+      .then(() => setMapsReady(true))
+      .catch(() => setError('Unable to load Google Maps. You can still enter address manually.'));
 
     return () => {
       if (rzpScript.parentNode) document.body.removeChild(rzpScript);
-      if (mapsScript.parentNode) document.body.removeChild(mapsScript);
     };
   }, [workerId]);
 
   useEffect(() => {
-    if (!addressQuery || addressQuery.length < 3 || !window.google?.maps?.places) {
+    if (!mapsReady || !addressQuery || addressQuery.length < 3 || !window.google?.maps?.places) {
       setSuggestions([]);
       return;
     }
@@ -59,7 +64,7 @@ export default function BookPage() {
         setSuggestions((predictions || []).slice(0, 5).map((x) => x.description));
       }
     );
-  }, [addressQuery]);
+  }, [addressQuery, mapsReady]);
 
   const slotsByDate = slots.reduce((acc: Record<string, any[]>, slot: any) => {
     const d = slot.date.split('T')[0];
@@ -149,6 +154,7 @@ export default function BookPage() {
         <div className="card p-4">
           <h2 className="font-semibold text-gray-900 mb-3 flex items-center gap-2"><MapPin size={16} className="text-blue-600" /> Service address</h2>
           <input className="input" placeholder="Search address (Google Maps)" value={addressQuery} onChange={e => { setAddressQuery(e.target.value); setAddress(e.target.value); }} />
+          {!mapsReady && <p className="text-xs text-gray-500 mt-2">Loading address suggestions...</p>}
           {suggestions.length > 0 && (
             <div className="mt-2 rounded-xl border border-gray-200 bg-white overflow-hidden">
               {suggestions.map((item) => (

@@ -1,12 +1,25 @@
 'use client';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { useEffect, useState } from 'react';
 import { useAuthStore } from '@/lib/store';
 import { LogOut, Bell, Settings } from 'lucide-react';
 
 export default function RoleHeader() {
   const router = useRouter();
   const { user, clearAuth } = useAuthStore();
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  useEffect(() => {
+    const readCount = () => setUnreadCount(Number(localStorage.getItem('sn_notifications_unread_count') || '0'));
+    readCount();
+    window.addEventListener('storage', readCount);
+    window.addEventListener('sn-notification-count-updated', readCount);
+    return () => {
+      window.removeEventListener('storage', readCount);
+      window.removeEventListener('sn-notification-count-updated', readCount);
+    };
+  }, []);
 
   if (!user) return null;
 
@@ -28,7 +41,7 @@ export default function RoleHeader() {
             <>
               <button className="relative p-2 text-gray-400 hover:text-gray-600" onClick={() => router.push('/notifications')}>
                 <Bell size={20} />
-                <span className="absolute top-0 right-0 w-2 h-2 bg-red-500 rounded-full" />
+                {unreadCount > 0 && <span className="absolute top-0 right-0 w-2 h-2 bg-red-500 rounded-full" />}
               </button>
               <button className="p-2 text-gray-400 hover:text-gray-600" onClick={() => router.push('/settings')}>
                 <Settings size={20} />

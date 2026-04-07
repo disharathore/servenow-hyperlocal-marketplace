@@ -1,11 +1,36 @@
 'use client';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import AppWrapperLayout from '@/app/_components/AppWrapperLayout';
 import { toast } from 'sonner';
+
+const SETTINGS_KEY = 'sn_settings';
+
+type LocalSettings = {
+  notifications: boolean;
+  locationShare: boolean;
+};
 
 export default function SettingsPage() {
   const [notifications, setNotifications] = useState(true);
   const [locationShare, setLocationShare] = useState(true);
+
+  useEffect(() => {
+    const raw = localStorage.getItem(SETTINGS_KEY);
+    if (!raw) return;
+    try {
+      const saved = JSON.parse(raw) as LocalSettings;
+      setNotifications(Boolean(saved.notifications));
+      setLocationShare(Boolean(saved.locationShare));
+    } catch {
+      localStorage.removeItem(SETTINGS_KEY);
+    }
+  }, []);
+
+  const saveSettings = () => {
+    const next: LocalSettings = { notifications, locationShare };
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(next));
+    toast.success('Settings saved');
+  };
 
   return (
     <AppWrapperLayout>
@@ -20,7 +45,7 @@ export default function SettingsPage() {
             <span className="text-sm font-medium text-gray-700">Share live location during active jobs</span>
             <input type="checkbox" checked={locationShare} onChange={(e) => setLocationShare(e.target.checked)} className="w-4 h-4 accent-blue-600" />
           </label>
-          <button className="btn-primary" onClick={() => toast.success('Settings saved')}>Save Settings</button>
+          <button className="btn-primary" onClick={saveSettings}>Save Settings</button>
         </div>
       </div>
     </AppWrapperLayout>

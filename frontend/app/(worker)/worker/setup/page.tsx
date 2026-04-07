@@ -1,19 +1,33 @@
 'use client';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import api, { authApi } from '@/lib/api';
+import api, { authApi, servicesApi } from '@/lib/api';
 import { useAuthStore } from '@/lib/store';
 
 const DAYS = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
 const TIMES = ['08:00','09:00','10:00','11:00','12:00','13:00','14:00','15:00','16:00','17:00','18:00'];
 
+type Category = { id: string; name: string; icon?: string };
+
 export default function WorkerSetupPage() {
   const router = useRouter();
   const updateUser = useAuthStore(s => s.updateUser);
   const [bio, setBio] = useState(''); const [exp, setExp] = useState(1); const [rate, setRate] = useState(300);
-  const [skills, setSkills] = useState(''); const [pincode, setPincode] = useState(''); const [pincodeInfo, setPincodeInfo] = useState<any>(null);
+  const [skills, setSkills] = useState(''); const [pincode, setPincode] = useState(''); const [pincodeInfo, setPincodeInfo] = useState<{ city: string; locality: string } | null>(null);
   const [slots, setSlots] = useState([{day:'Monday',start:'09:00',end:'17:00'},{day:'Tuesday',start:'09:00',end:'17:00'}]);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [categoryId, setCategoryId] = useState('');
   const [loading, setLoading] = useState(false); const [error, setError] = useState('');
+
+  useEffect(() => {
+    servicesApi.categories()
+      .then((res) => {
+        const items: Category[] = res.data || [];
+        setCategories(items);
+        if (items.length > 0) setCategoryId(items[0].id);
+      })
+      .catch(() => setError('Failed to load service categories'));
+  }, []);
 
   async function lookupPincode() {
     if (pincode.length !== 6) return;
@@ -23,11 +37,12 @@ export default function WorkerSetupPage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!bio.trim()) return setError('Please add a bio');
+    if (!categoryId) return setError('Please select a service category');
     if (slots.length === 0) return setError('Add at least one slot');
     setError(''); setLoading(true);
     try {
       if (pincode) await api.patch('/auth/profile', { pincode, role: 'worker' });
-      await api.post('/workers/setup', { bio, experience_years: exp, hourly_rate: rate, skills: skills.split(',').map(s=>s.trim()).filter(Boolean), slots: slots.map(s => ({ day_of_week: DAYS.indexOf(s.day), start_time: s.start, end_time: s.end })) });
+      await api.post('/workers/setup', { bio, category_id: categoryId, experience_years: exp, hourly_rate: rate, skills: skills.split(',').map(s=>s.trim()).filter(Boolean), slots: slots.map(s => ({ day_of_week: DAYS.indexOf(s.day), start_time: s.start, end_time: s.end })) });
       const meRes = await authApi.me();
       updateUser(meRes.data);
       router.replace('/worker/dashboard');
@@ -41,6 +56,12 @@ export default function WorkerSetupPage() {
       <form onSubmit={handleSubmit} className="max-w-2xl mx-auto px-4 py-6 space-y-5">
         <div className="card p-5 space-y-3">
           <h2 className="font-semibold text-gray-900">About you</h2>
+          <div>
+            <label className="block text-sm text-gray-600 mb-1">Service category</label>
+            <select className="input" value={categoryId} onChange={e=>setCategoryId(e.target.value)} required>
+              {categories.map(c => <option key={c.id} value={c.id}>{c.icon ? `${c.icon} ` : ''}{c.name}</option>)}
+            </select>
+          </div>
           <div><label className="block text-sm text-gray-600 mb-1">Short bio</label><textarea className="input resize-none" rows={3} placeholder="Experienced plumber with 5 years in residential repairs…" value={bio} onChange={e=>setBio(e.target.value)} required /></div>
           <div className="grid grid-cols-2 gap-3">
             <div><label className="block text-sm text-gray-600 mb-1">Experience (years)</label><input type="number" min={0} max={50} className="input" value={exp} onChange={e=>setExp(Number(e.target.value))} /></div>

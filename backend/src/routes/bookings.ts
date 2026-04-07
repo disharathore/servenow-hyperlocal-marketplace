@@ -5,6 +5,7 @@ import pool from '../db/client';
 import { acquireLock, releaseLock } from '../db/redis';
 import { requireAuth } from '../middleware/auth';
 import { geocodeAddress } from '../utils/maps';
+import { sendBookingConfirmation } from '../utils/resend';
 import { io } from '../index';
 
 const router = Router();
@@ -35,6 +36,22 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
       await client.query('UPDATE availability_slots SET is_booked = true WHERE id = $1', [slot_id]);
       await client.query('COMMIT');
       const booking = bookingResult.rows[0];
+
+      const customerResult = await query('SELECT name, email FROM users WHERE id = $1', [req.user!.userId]);
+      const customer = customerResult.rows[0];
+      if (customer?.email) {
+        sendBookingConfirmation({
+          customerName: customer.name || 'Customer',
+          customerEmail: customer.email,
+          workerName: worker.worker_name || 'Your worker',
+          category: worker.category_name,
+          scheduledAt: new Date(booking.scheduled_at).toLocaleString('en-IN'),
+          address,
+          bookingId: booking.id,
+          amount,
+        }).catch(console.error);
+      }
+
       io.to(`worker:${worker_id}`).emit('new_booking', { booking_id: booking.id, category: worker.category_name, address, scheduled_at: booking.scheduled_at, amount });
       return res.status(201).json(booking);
     } catch (err) { await client.query('ROLLBACK'); throw err; }

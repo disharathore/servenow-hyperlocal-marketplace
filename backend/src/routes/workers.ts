@@ -6,35 +6,23 @@ import { requireAuth, requireRole } from '../middleware/auth';
 
 const router = Router();
 
-async function ensureWorkerCategoryId(): Promise<string> {
-  const existing = await query('SELECT id FROM categories WHERE is_active = true ORDER BY name LIMIT 1');
-  if (existing.rows[0]?.id) return existing.rows[0].id;
-
-  const created = await query(
-    `INSERT INTO categories (slug, name, icon, description, base_price, is_active)
-     VALUES ('general-service', 'General Service', '🧰', 'General doorstep service', 299, true)
-     ON CONFLICT (slug) DO UPDATE SET is_active = true
-     RETURNING id`
-  );
-  return created.rows[0].id;
-}
-
 router.post('/setup', requireAuth, requireRole('worker'), async (req: Request, res: Response) => {
-  const schema = z.object({ bio: z.string().min(10), experience_years: z.number().int().min(0).max(50), hourly_rate: z.number().int().min(100).max(10000), skills: z.array(z.string()).optional(), slots: z.array(z.object({ day_of_week: z.number().int().min(0).max(6), start_time: z.string(), end_time: z.string() })).min(1) });
+  const schema = z.object({ category_id: z.string().uuid(), bio: z.string().min(10), experience_years: z.number().int().min(0).max(50), hourly_rate: z.number().int().min(100).max(10000), skills: z.array(z.string()).optional(), slots: z.array(z.object({ day_of_week: z.number().int().min(0).max(6), start_time: z.string(), end_time: z.string() })).min(1) });
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'Invalid data' });
-  const { bio, experience_years, hourly_rate, skills, slots } = parsed.data;
-  const catId = await ensureWorkerCategoryId();
+  const { category_id, bio, experience_years, hourly_rate, skills, slots } = parsed.data;
+  const categoryResult = await query('SELECT id FROM categories WHERE id = $1 AND is_active = true', [category_id]);
+  if (!categoryResult.rows[0]) return res.status(400).json({ error: 'Invalid category selected' });
   const existing = await query('SELECT id FROM worker_profiles WHERE user_id=$1', [req.user!.userId]);
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
     let wId: string;
     if (existing.rows[0]) {
-      await client.query(`UPDATE worker_profiles SET bio=$1,experience_years=$2,hourly_rate=$3 WHERE user_id=$4`, [bio, experience_years, hourly_rate, req.user!.userId]);
+      await client.query(`UPDATE worker_profiles SET category_id=$1,bio=$2,experience_years=$3,hourly_rate=$4 WHERE user_id=$5`, [category_id, bio, experience_years, hourly_rate, req.user!.userId]);
       wId = existing.rows[0].id;
     } else {
-      wId = (await client.query(`INSERT INTO worker_profiles (user_id,category_id,bio,experience_years,hourly_rate) VALUES ($1,$2,$3,$4,$5) RETURNING id`, [req.user!.userId, catId, bio, experience_years, hourly_rate])).rows[0].id;
+      wId = (await client.query(`INSERT INTO worker_profiles (user_id,category_id,bio,experience_years,hourly_rate) VALUES ($1,$2,$3,$4,$5) RETURNING id`, [req.user!.userId, category_id, bio, experience_years, hourly_rate])).rows[0].id;
     }
     if (skills?.length) {
       await client.query('DELETE FROM worker_skills WHERE worker_id=$1', [wId]);
