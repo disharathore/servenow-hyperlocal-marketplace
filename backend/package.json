@@ -2,7 +2,7 @@
   "name": "servenow-backend",
   "version": "1.0.0",
   "scripts": {
-    "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
+    "dev": "bash ./scripts/dev-preflight.sh && ts-node-dev --respawn --transpile-only src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js"
   },
