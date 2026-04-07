@@ -33,6 +33,8 @@ export default function TrackPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [disputing, setDisputing] = useState(false);
+  const [showDisputeForm, setShowDisputeForm] = useState(false);
+  const [disputeReason, setDisputeReason] = useState('');
 
   const fetchBooking = async () => {
     setLoading(true);
@@ -74,16 +76,17 @@ export default function TrackPage() {
 
   async function raiseDispute() {
     if (!booking) return;
-    const reason = window.prompt('Describe the issue (min 10 characters):');
-    if (!reason) return;
-    if (reason.trim().length < 10) {
+    const reason = disputeReason.trim();
+    if (reason.length < 10) {
       toast.error('Please enter at least 10 characters.');
       return;
     }
     setDisputing(true);
     try {
-      await bookingsApi.dispute(booking.id, reason.trim());
+      await bookingsApi.dispute(booking.id, reason);
       setBooking((prev) => prev ? { ...prev, status: 'disputed' } : prev);
+      setShowDisputeForm(false);
+      setDisputeReason('');
       toast.success('Dispute raised. Admin will review this booking.');
     } catch {
       toast.error('Could not raise dispute right now. Please try again.');
@@ -120,11 +123,11 @@ export default function TrackPage() {
     <div className="min-h-screen bg-gray-50 flex flex-col">
       <div ref={mapRef} className="w-full h-[45vh] bg-gray-200" />
       <div className="flex-1 bg-white rounded-t-3xl -mt-4 relative z-10 p-5 space-y-5 overflow-auto">
-        <div className={`rounded-xl p-3 text-sm font-medium ${booking.status==='completed'?'bg-green-50 text-green-800':booking.status==='cancelled'?'bg-red-50 text-red-800':'bg-blue-50 text-blue-800'}`}>{STATUS_LABELS[booking.status]||booking.status}</div>
-        {booking.status !== 'completed' && booking.status !== 'cancelled' && (
+        <div className={`rounded-xl p-3 text-sm font-medium ${booking.status==='completed'?'bg-green-50 text-green-800':booking.status==='cancelled'?'bg-red-50 text-red-800':booking.status==='disputed'?'bg-yellow-50 text-yellow-800':'bg-blue-50 text-blue-800'}`}>{STATUS_LABELS[booking.status]||booking.status}</div>
+        {booking.status !== 'completed' && booking.status !== 'cancelled' && booking.status !== 'disputed' && (
           <div className="rounded-xl p-3 text-sm font-medium bg-amber-50 text-amber-800">Worker is on the way</div>
         )}
-        {booking.status !== 'cancelled' && (
+        {booking.status !== 'cancelled' && booking.status !== 'disputed' && (
           <div className="flex items-center gap-1">
             {STATUS_STEPS.map((_, i) => (
               <div key={i} className="flex items-center flex-1">
@@ -144,10 +147,30 @@ export default function TrackPage() {
           <div className="flex gap-2"><Clock size={16} className="text-gray-400 flex-shrink-0 mt-0.5" /><span>{new Date(booking.scheduled_at).toLocaleString('en-IN')}</span></div>
         </div>
         {booking.status === 'completed' && <div className="grid grid-cols-2 gap-2"><a href={`/review/${booking.id}`} className="btn-primary w-full text-center block">⭐ Rate & Review</a><a href={`/invoice/${booking.id}`} className="btn-secondary w-full text-center block">Invoice</a></div>}
-        {(booking.status === 'completed' || booking.status === 'in_progress') && (
-          <button type="button" onClick={raiseDispute} disabled={disputing} className="w-full text-sm text-red-600 border border-red-200 rounded-xl py-2 hover:bg-red-50 disabled:opacity-50">
-            {disputing ? 'Raising dispute...' : 'Raise a dispute'}
+        {(booking.status === 'completed' || booking.status === 'in_progress') && !showDisputeForm && (
+          <button type="button" onClick={() => setShowDisputeForm(true)} disabled={disputing} className="w-full text-sm text-red-600 border border-red-200 rounded-xl py-2 hover:bg-red-50 disabled:opacity-50">
+            Raise a dispute
           </button>
+        )}
+        {showDisputeForm && booking.status !== 'disputed' && (
+          <div className="border border-red-200 bg-red-50 rounded-xl p-3 space-y-2">
+            <p className="text-sm font-medium text-red-700">Describe the issue for admin review</p>
+            <textarea
+              className="input resize-none"
+              rows={3}
+              placeholder="Example: Worker marked job complete without resolving leakage issue"
+              value={disputeReason}
+              onChange={(e) => setDisputeReason(e.target.value)}
+            />
+            <div className="flex gap-2">
+              <button type="button" className="btn-secondary text-sm py-2" onClick={() => { setShowDisputeForm(false); setDisputeReason(''); }}>
+                Cancel
+              </button>
+              <button type="button" className="btn-primary text-sm py-2" onClick={raiseDispute} disabled={disputing || disputeReason.trim().length < 10}>
+                {disputing ? 'Submitting...' : 'Submit dispute'}
+              </button>
+            </div>
+          </div>
         )}
       </div>
     </div>
