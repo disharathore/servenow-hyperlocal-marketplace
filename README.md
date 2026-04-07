@@ -100,6 +100,13 @@ npm run dev
 ```
 
 This starts backend and frontend together from the repository root.
+Before startup, a preflight cleanup clears stale processes on ports `3000` and `4000` to reduce `EADDRINUSE` failures.
+
+If needed, you can run cleanup manually:
+
+```bash
+npm run dev:clean
+```
 
 ### 1. Clone and install
 
