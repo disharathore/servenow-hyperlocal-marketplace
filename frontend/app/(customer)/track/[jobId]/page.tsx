@@ -16,8 +16,24 @@ export default function TrackPage() {
   const workerMarker = useRef<any>(null);
   const [booking, setBooking] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
-  useEffect(() => { bookingsApi.get(jobId).then(r => { setBooking(r.data); setLoading(false); }); }, [jobId]);
+  const fetchBooking = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const r = await bookingsApi.get(jobId);
+      setBooking(r.data);
+    } catch {
+      setError('Unable to load tracking right now. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchBooking();
+  }, [jobId]);
 
   useEffect(() => {
     if (!booking || !mapRef.current) return;
@@ -49,19 +65,28 @@ export default function TrackPage() {
     return () => { socket.off('worker:location'); socket.off('job_started'); socket.off('job_completed'); };
   }, [jobId]);
 
-  if (loading||!booking) return <div className="min-h-screen flex items-center justify-center"><div className="animate-pulse text-gray-400">Loading tracking…</div></div>;
+  if (loading) return <div className="min-h-screen flex items-center justify-center"><div className="animate-pulse text-gray-400">Loading tracking…</div></div>;
+  if (error) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+        <div className="max-w-md w-full card p-6 text-center">
+          <p className="font-semibold text-gray-900">Tracking unavailable</p>
+          <p className="text-sm text-gray-500 mt-2">{error}</p>
+          <button className="btn-primary mt-4" onClick={fetchBooking}>Retry</button>
+        </div>
+      </div>
+    );
+  }
+  if (!booking) return null;
   const stepIndex = STATUS_STEPS.indexOf(booking.status);
-  const etaMinutes = booking.worker_lat && booking.worker_lng && booking.lat && booking.lng
-    ? Math.max(5, Math.round(Math.sqrt(Math.abs(Number(booking.worker_lat) - Number(booking.lat)) + Math.abs(Number(booking.worker_lng) - Number(booking.lng))) * 120))
-    : null;
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
       <div ref={mapRef} className="w-full h-[45vh] bg-gray-200" />
       <div className="flex-1 bg-white rounded-t-3xl -mt-4 relative z-10 p-5 space-y-5 overflow-auto">
         <div className={`rounded-xl p-3 text-sm font-medium ${booking.status==='completed'?'bg-green-50 text-green-800':booking.status==='cancelled'?'bg-red-50 text-red-800':'bg-blue-50 text-blue-800'}`}>{STATUS_LABELS[booking.status]||booking.status}</div>
-        {booking.status !== 'completed' && booking.status !== 'cancelled' && etaMinutes && (
-          <div className="rounded-xl p-3 text-sm font-medium bg-amber-50 text-amber-800">ETA: {etaMinutes} mins</div>
+        {booking.status !== 'completed' && booking.status !== 'cancelled' && (
+          <div className="rounded-xl p-3 text-sm font-medium bg-amber-50 text-amber-800">Worker is on the way</div>
         )}
         {booking.status !== 'cancelled' && (
           <div className="flex items-center gap-1">

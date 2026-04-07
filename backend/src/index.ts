@@ -6,6 +6,22 @@ import { Server as SocketServer } from 'socket.io';
 import dotenv from 'dotenv';
 dotenv.config();
 
+const REQUIRED_ENV_VARS = [
+  'DATABASE_URL',
+  'REDIS_URL',
+  'JWT_SECRET',
+  'RAZORPAY_KEY_ID',
+  'RAZORPAY_KEY_SECRET',
+  'GOOGLE_MAPS_API_KEY',
+];
+
+const missingEnvVars = REQUIRED_ENV_VARS.filter((key) => !process.env[key] || process.env[key]!.trim().length === 0);
+if (missingEnvVars.length > 0) {
+  console.error('Missing required environment variables:');
+  for (const key of missingEnvVars) console.error(`- ${key}`);
+  process.exit(1);
+}
+
 import { rateLimiter } from './middleware/rateLimiter';
 import authRoutes from './routes/auth';
 import servicesRoutes from './routes/services';

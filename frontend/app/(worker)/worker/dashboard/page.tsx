@@ -14,6 +14,7 @@ export default function WorkerDashboard() {
   const [available, setAvailable] = useState(true);
   const [loading, setLoading] = useState(true);
   const bookingsRef = useRef<any[]>([]);
+  const locationIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     bookingsRef.current = bookings;
@@ -34,7 +35,24 @@ export default function WorkerDashboard() {
     loadDashboard();
     const socket = connectSocket();
     socket.on('new_booking', () => bookingsApi.list().then(r => setBookings(r.data)));
-    const locationInterval = setInterval(() => {
+    return () => { socket.off('new_booking'); };
+  }, [user, router]);
+
+  useEffect(() => {
+    const hasActiveBooking = bookings.some((b) => ['accepted', 'in_progress'].includes(b.status));
+
+    if (!hasActiveBooking) {
+      if (locationIntervalRef.current) {
+        clearInterval(locationIntervalRef.current);
+        locationIntervalRef.current = null;
+      }
+      return;
+    }
+
+    if (locationIntervalRef.current) return;
+
+    const socket = connectSocket();
+    locationIntervalRef.current = setInterval(() => {
       const savedSettings = localStorage.getItem('sn_settings');
       if (savedSettings) {
         try {
@@ -48,8 +66,14 @@ export default function WorkerDashboard() {
       if (!activeBooking) return;
       navigator.geolocation.getCurrentPosition(pos => socket.emit('worker:location', { lat: pos.coords.latitude, lng: pos.coords.longitude, booking_id: activeBooking.id }));
     }, 15000);
-    return () => { socket.off('new_booking'); clearInterval(locationInterval); };
-  }, [user, router]);
+
+    return () => {
+      if (locationIntervalRef.current) {
+        clearInterval(locationIntervalRef.current);
+        locationIntervalRef.current = null;
+      }
+    };
+  }, [bookings]);
 
   async function toggleAvailability() { const socket = connectSocket(); socket.emit('worker:availability', { available: !available }); setAvailable(!available); }
 

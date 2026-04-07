@@ -11,9 +11,25 @@ export default function DashboardPage() {
   const router = useRouter();
   const [bookings, setBookings] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const [filter, setFilter] = useState('');
 
-  useEffect(() => { bookingsApi.list(filter||undefined).then(r => { setBookings(r.data); setLoading(false); }); }, [filter]);
+  const fetchBookings = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const r = await bookingsApi.list(filter||undefined);
+      setBookings(r.data);
+    } catch {
+      setError('Unable to load your bookings. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchBookings();
+  }, [filter]);
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -30,6 +46,13 @@ export default function DashboardPage() {
           ))}
         </div>
         {loading ? <div className="space-y-3">{Array.from({length:3}).map((_,i) => <div key={i} className="card p-4 animate-pulse h-28 bg-gray-100" />)}</div>
+          : error ? (
+            <div className="card p-6 text-center">
+              <p className="font-semibold text-gray-900">Could not fetch bookings</p>
+              <p className="text-sm text-gray-500 mt-1">{error}</p>
+              <button className="btn-primary mt-4" onClick={fetchBookings}>Retry</button>
+            </div>
+          )
           : bookings.length===0 ? <div className="text-center py-16 text-gray-400"><p className="text-4xl mb-3">📋</p><p className="font-medium">No bookings yet</p><Link href="/" className="btn-primary inline-block mt-4 text-sm">Book a Service</Link></div>
           : <div className="space-y-3">{bookings.map((b:any) => (
             <Link key={b.id} href={`/track/${b.id}`} className="card p-4 block hover:shadow-md transition-shadow">

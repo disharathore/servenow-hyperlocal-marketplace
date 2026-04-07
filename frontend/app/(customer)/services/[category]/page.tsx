@@ -42,6 +42,7 @@ export default function ServiceListingPage() {
   const [workers, setWorkers] = useState<Worker[]>([]);
   const [filteredWorkers, setFilteredWorkers] = useState<Worker[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const [showFilters, setShowFilters] = useState(false);
   const [locationLoading, setLocationLoading] = useState(true);
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
@@ -85,14 +86,31 @@ export default function ServiceListingPage() {
   useEffect(() => {
     if (!category || !userLocation) return;
 
+    setError('');
     servicesApi.workers({ category, lat: userLocation.lat, lng: userLocation.lng })
       .then(r => {
         setWorkers(r.data);
         setLoading(false);
         applyFilters(r.data);
       })
-      .catch(() => setLoading(false));
+      .catch(() => {
+        setLoading(false);
+        setError('Unable to load workers right now. Please try again.');
+      });
   }, [category, userLocation]);
+
+  const retryFetch = () => {
+    if (!category || !userLocation) return;
+    setLoading(true);
+    setError('');
+    servicesApi.workers({ category, lat: userLocation.lat, lng: userLocation.lng })
+      .then(r => {
+        setWorkers(r.data);
+        applyFilters(r.data);
+      })
+      .catch(() => setError('Unable to load workers right now. Please try again.'))
+      .finally(() => setLoading(false));
+  };
 
   const applyFilters = (workersList: Worker[]) => {
     const filtered = workersList.filter(w => 
@@ -248,6 +266,13 @@ export default function ServiceListingPage() {
             </div>
 
             {filteredWorkers.length === 0 ? (
+              error ? (
+                <div className="card p-8 text-center">
+                  <p className="font-semibold text-gray-900">Failed to load workers</p>
+                  <p className="text-sm text-gray-500 mt-1">{error}</p>
+                  <button className="btn-primary mt-4" onClick={retryFetch}>Retry</button>
+                </div>
+              ) : (
               <div className="card p-8 text-center">
                 <p className="text-4xl mb-3">🔍</p>
                 <p className="font-semibold text-gray-900">No workers found</p>
@@ -256,6 +281,7 @@ export default function ServiceListingPage() {
                   Browse all services
                 </Link>
               </div>
+              )
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <AnimatePresence>
