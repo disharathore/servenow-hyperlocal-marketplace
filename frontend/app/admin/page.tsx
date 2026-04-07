@@ -16,15 +16,68 @@ export default function AdminPage() {
   const [disputes, setDisputes] = useState<any[]>([]);
   const [tab, setTab] = useState<Tab>('overview');
   const [loading, setLoading] = useState(true);
+  const [pageError, setPageError] = useState('');
+  const [tabLoading, setTabLoading] = useState(false);
+  const [tabError, setTabError] = useState('');
 
-  useEffect(() => { if (!user) { router.push('/login'); return; } if (user.role !== 'admin') { router.push('/'); return; } adminApi.stats().then(r => { setStats(r.data); setLoading(false); }); }, [user,router]);
+  const fetchStats = async () => {
+    setLoading(true);
+    setPageError('');
+    try {
+      const r = await adminApi.stats();
+      setStats(r.data);
+    } catch {
+      setPageError('Unable to load admin stats. Please retry.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
-    if (tab==='bookings'&&bookings.length===0) adminApi.bookings().then(r=>setBookings(r.data));
-    if (tab==='workers'&&workers.length===0) adminApi.workers().then(r=>setWorkers(r.data));
-    if (tab==='disputes'&&disputes.length===0) adminApi.disputes().then(r=>setDisputes(r.data));
+    if (!user) { router.push('/login'); return; }
+    if (user.role !== 'admin') { router.push('/'); return; }
+    fetchStats();
+  }, [user,router]);
+
+  const fetchTabData = async (nextTab: Tab) => {
+    setTabError('');
+    setTabLoading(true);
+    try {
+      if (nextTab === 'bookings' && bookings.length === 0) {
+        const r = await adminApi.bookings();
+        setBookings(r.data);
+      }
+      if (nextTab === 'workers' && workers.length === 0) {
+        const r = await adminApi.workers();
+        setWorkers(r.data);
+      }
+      if (nextTab === 'disputes' && disputes.length === 0) {
+        const r = await adminApi.disputes();
+        setDisputes(r.data);
+      }
+    } catch {
+      setTabError(`Unable to load ${nextTab}. Please retry.`);
+    } finally {
+      setTabLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchTabData(tab);
   }, [tab, bookings.length, workers.length, disputes.length]);
 
-  if (loading||!stats) return <div className="min-h-screen flex items-center justify-center"><div className="animate-pulse text-gray-400">Loading…</div></div>;
+  if (loading) return <div className="min-h-screen flex items-center justify-center"><div className="animate-pulse text-gray-400">Loading…</div></div>;
+  if (pageError || !stats) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+        <div className="card p-6 max-w-md w-full text-center">
+          <p className="font-semibold text-gray-900">Admin dashboard unavailable</p>
+          <p className="text-sm text-gray-500 mt-2">{pageError || 'Unable to load admin stats.'}</p>
+          <button className="btn-primary mt-4" onClick={fetchStats}>Retry</button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -38,6 +91,8 @@ export default function AdminPage() {
         </div>
       </header>
       <main className="max-w-4xl mx-auto px-4 py-6">
+        {tabError && <div className="card p-3 mb-4 text-sm text-red-600 border border-red-200 bg-red-50">{tabError}</div>}
+        {tabLoading && tab !== 'overview' && <div className="card p-3 mb-4 text-sm text-gray-500">Loading {tab}...</div>}
         {tab==='overview' && <div className="space-y-6">
           <div className="grid grid-cols-2 gap-4">
             <div className="card p-5"><p className="text-xs text-gray-400 mb-1">Total GMV</p><p className="text-2xl font-bold text-gray-900">₹{Math.floor(Number(stats.revenue.total_gmv)/100).toLocaleString('en-IN')}</p></div>

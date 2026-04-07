@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { ArrowLeft, MapPin, Clock } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 
-const STATUS_COLORS: Record<string,string> = { pending:'badge-pending', accepted:'badge-accepted', in_progress:'badge-in_progress', completed:'badge-completed', cancelled:'badge-cancelled' };
+const STATUS_COLORS: Record<string,string> = { pending:'badge-pending', accepted:'badge-accepted', in_progress:'badge-in_progress', completed:'badge-completed', cancelled:'badge-cancelled', disputed:'bg-yellow-100 text-yellow-700' };
 
 interface Booking {
   id: string;

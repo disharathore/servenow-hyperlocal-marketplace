@@ -5,13 +5,14 @@ import { bookingsApi } from '@/lib/api';
 import { connectSocket } from '@/lib/socket';
 import { Loader } from '@googlemaps/js-api-loader';
 import { Clock, MapPin, Phone, Star } from 'lucide-react';
+import { toast } from 'sonner';
 
 const STATUS_STEPS = ['pending','accepted','in_progress','completed'];
-const STATUS_LABELS: Record<string,string> = { pending:'Waiting for worker to accept', accepted:'Worker accepted — heading your way', in_progress:'Worker is at your location', completed:'Job completed! 🎉', cancelled:'Booking cancelled' };
+const STATUS_LABELS: Record<string,string> = { pending:'Waiting for worker to accept', accepted:'Worker accepted — heading your way', in_progress:'Worker is at your location', completed:'Job completed! 🎉', cancelled:'Booking cancelled', disputed:'Dispute raised and under review' };
 
 interface Booking {
   id: string;
-  status: string;
+  status: 'pending' | 'accepted' | 'in_progress' | 'completed' | 'cancelled' | 'disputed';
   lat: number | null;
   lng: number | null;
   worker_lat: number | null;
@@ -31,6 +32,7 @@ export default function TrackPage() {
   const [booking, setBooking] = useState<Booking | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [disputing, setDisputing] = useState(false);
 
   const fetchBooking = async () => {
     setLoading(true);
@@ -68,6 +70,26 @@ export default function TrackPage() {
     if (workerMarker.current) { workerMarker.current.setPosition(pos); }
     else { workerMarker.current = new googleMaps.maps.Marker({ position: pos, map: mapInstance.current, icon: { url: 'https://maps.google.com/mapfiles/ms/icons/orange-dot.png', scaledSize: new googleMaps.maps.Size(48,48) }, title: 'Worker' }); }
     if (booking?.lat && booking?.lng) { const b = new googleMaps.maps.LatLngBounds(); b.extend(pos); b.extend({lat: booking.lat, lng: booking.lng}); mapInstance.current.fitBounds(b, 80); }
+  }
+
+  async function raiseDispute() {
+    if (!booking) return;
+    const reason = window.prompt('Describe the issue (min 10 characters):');
+    if (!reason) return;
+    if (reason.trim().length < 10) {
+      toast.error('Please enter at least 10 characters.');
+      return;
+    }
+    setDisputing(true);
+    try {
+      await bookingsApi.dispute(booking.id, reason.trim());
+      setBooking((prev) => prev ? { ...prev, status: 'disputed' } : prev);
+      toast.success('Dispute raised. Admin will review this booking.');
+    } catch {
+      toast.error('Could not raise dispute right now. Please try again.');
+    } finally {
+      setDisputing(false);
+    }
   }
 
   useEffect(() => {
@@ -122,6 +144,11 @@ export default function TrackPage() {
           <div className="flex gap-2"><Clock size={16} className="text-gray-400 flex-shrink-0 mt-0.5" /><span>{new Date(booking.scheduled_at).toLocaleString('en-IN')}</span></div>
         </div>
         {booking.status === 'completed' && <div className="grid grid-cols-2 gap-2"><a href={`/review/${booking.id}`} className="btn-primary w-full text-center block">⭐ Rate & Review</a><a href={`/invoice/${booking.id}`} className="btn-secondary w-full text-center block">Invoice</a></div>}
+        {(booking.status === 'completed' || booking.status === 'in_progress') && (
+          <button type="button" onClick={raiseDispute} disabled={disputing} className="w-full text-sm text-red-600 border border-red-200 rounded-xl py-2 hover:bg-red-50 disabled:opacity-50">
+            {disputing ? 'Raising dispute...' : 'Raise a dispute'}
+          </button>
+        )}
       </div>
     </div>
   );

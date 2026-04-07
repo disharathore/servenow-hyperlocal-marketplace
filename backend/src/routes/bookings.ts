@@ -96,4 +96,34 @@ router.patch('/:id/cancel', requireAuth, async (req, res) => {
   return res.json({ success: true });
 });
 
+router.patch('/:id/dispute', requireAuth, async (req, res) => {
+  const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim() : '';
+  if (!reason || reason.length < 10) return res.status(400).json({ error: 'Please provide a dispute reason (min 10 chars)' });
+
+  const bookingResult = await query('SELECT * FROM bookings WHERE id = $1', [req.params.id]);
+  const booking = bookingResult.rows[0];
+  if (!booking) return res.status(404).json({ error: 'Booking not found' });
+  if (booking.status === 'disputed') return res.status(400).json({ error: 'Booking is already disputed' });
+
+  const isCustomer = booking.customer_id === req.user!.userId;
+  let isWorker = false;
+  if (!isCustomer) {
+    const workerProfile = await query('SELECT id FROM worker_profiles WHERE user_id = $1', [req.user!.userId]);
+    isWorker = workerProfile.rows[0]?.id === booking.worker_id;
+  }
+  if (!isCustomer && !isWorker) return res.status(403).json({ error: 'Not allowed to dispute this booking' });
+
+  const updated = await query(
+    `UPDATE bookings
+     SET status = 'disputed', cancellation_reason = $2, updated_at = NOW()
+     WHERE id = $1
+     RETURNING *`,
+    [req.params.id, reason]
+  );
+
+  io.to(`worker:${booking.worker_id}`).emit('booking_disputed', { booking_id: req.params.id, reason });
+  io.to(`customer:${booking.customer_id}`).emit('booking_disputed', { booking_id: req.params.id, reason });
+  return res.json(updated.rows[0]);
+});
+
 export default router;

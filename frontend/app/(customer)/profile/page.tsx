@@ -5,6 +5,17 @@ import { useAuthStore } from '@/lib/store';
 import { authApi } from '@/lib/api';
 import { toast } from 'sonner';
 
+async function isValidIndianPincode(pin: string) {
+  if (!/^\d{6}$/.test(pin)) return false;
+  try {
+    const res = await fetch(`https://api.postalpincode.in/pincode/${pin}`);
+    const data = await res.json();
+    return data?.[0]?.Status === 'Success';
+  } catch {
+    return false;
+  }
+}
+
 export default function ProfilePage() {
   const { user, updateUser } = useAuthStore();
   const [name, setName] = useState(user?.name || '');
@@ -12,9 +23,24 @@ export default function ProfilePage() {
   const [loading, setLoading] = useState(false);
 
   async function onSave() {
+    const normalizedPin = pincode.trim();
+    if (normalizedPin && !/^\d{6}$/.test(normalizedPin)) {
+      toast.error('Pincode must be 6 digits');
+      return;
+    }
+
     setLoading(true);
     try {
-      const r = await authApi.updateProfile({ name, pincode });
+      if (normalizedPin) {
+        const valid = await isValidIndianPincode(normalizedPin);
+        if (!valid) {
+          toast.error('Enter a valid Indian pincode');
+          setLoading(false);
+          return;
+        }
+      }
+
+      const r = await authApi.updateProfile({ name, pincode: normalizedPin });
       updateUser(r.data);
       toast.success('Profile updated');
     } catch {
