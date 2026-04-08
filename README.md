@@ -156,9 +156,12 @@ Run through [DEMO_CHECKLIST.md](DEMO_CHECKLIST.md) before sharing with recruiter
 
 ## Deployment
 
-- **Frontend** → Push to Vercel. Set env vars in Vercel dashboard.
-- **Backend** → Deploy to Railway. Add Redis plugin. Set env vars.
-- **Database** → Neon.tech free tier (serverless Postgres).
+- **Frontend (Free)** → Vercel free tier.
+- **Backend (Free)** → Render free web service (`render.yaml` included).
+- **Database (Free)** → Neon free Postgres.
+- **Redis (Free)** → Upstash free Redis (or Railway trial/free credits).
+
+Use the full step-by-step checklist in [FREE_DEPLOYMENT.md](FREE_DEPLOYMENT.md).
 
 ---
 
