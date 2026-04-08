@@ -16,6 +16,13 @@ export async function acquireLock(key: string, ttl = 10): Promise<boolean> {
   return r === 'OK';
 }
 export async function releaseLock(key: string) { await redis.del(`lock:${key}`); }
+export async function acquirePaymentHold(bookingId: string, customerId: string, ttlSeconds = 120): Promise<boolean> {
+  const r = await redis.set(`payment_hold:${bookingId}`, customerId, 'EX', ttlSeconds, 'NX');
+  return r === 'OK';
+}
+export async function releasePaymentHold(bookingId: string) {
+  await redis.del(`payment_hold:${bookingId}`);
+}
 export async function storeOtp(phone: string, otp: string) { await redis.set(`otp:${phone}`, otp, 'EX', 300); }
 export async function getOtp(phone: string) { return redis.get(`otp:${phone}`); }
 export async function deleteOtp(phone: string) { await redis.del(`otp:${phone}`); }

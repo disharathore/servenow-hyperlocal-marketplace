@@ -4,6 +4,7 @@ import crypto from 'crypto';
 import { query } from '../db/client';
 import { requireAuth } from '../middleware/auth';
 import { io } from '../index';
+import { acquirePaymentHold, releasePaymentHold } from '../db/redis';
 
 const router = Router();
 const razorpay = new Razorpay({ key_id: process.env.RAZORPAY_KEY_ID!, key_secret: process.env.RAZORPAY_KEY_SECRET! });
@@ -13,6 +14,8 @@ router.post('/create-order', requireAuth, async (req: Request, res: Response) =>
   const bRes = await query('SELECT * FROM bookings WHERE id=$1 AND customer_id=$2', [booking_id, req.user!.userId]);
   if (!bRes.rows[0]) return res.status(404).json({ error: 'Booking not found' });
   if (bRes.rows[0].payment_status === 'paid') return res.status(400).json({ error: 'Already paid' });
+  const held = await acquirePaymentHold(booking_id, req.user!.userId, 120);
+  if (!held) return res.status(409).json({ error: 'Payment session already active. Try again shortly.' });
   const order = await razorpay.orders.create({ amount: bRes.rows[0].amount, currency: 'INR', receipt: `bk_${booking_id.slice(0,16)}`, notes: { booking_id } });
   await query('UPDATE bookings SET razorpay_order_id=$1 WHERE id=$2', [order.id, booking_id]);
   return res.json({ order_id: order.id, amount: order.amount, currency: order.currency, key_id: process.env.RAZORPAY_KEY_ID });
@@ -23,8 +26,21 @@ router.post('/verify', requireAuth, async (req: Request, res: Response) => {
   const expected = crypto.createHmac('sha256', process.env.RAZORPAY_KEY_SECRET!).update(`${razorpay_order_id}|${razorpay_payment_id}`).digest('hex');
   if (expected !== razorpay_signature) return res.status(400).json({ error: 'Invalid signature' });
   await query(`UPDATE bookings SET payment_status='paid', razorpay_payment_id=$1 WHERE id=$2`, [razorpay_payment_id, booking_id]);
+  await releasePaymentHold(booking_id);
   const b = await query('SELECT * FROM bookings WHERE id=$1', [booking_id]);
   if (b.rows[0]) io.to(`worker:${b.rows[0].worker_id}`).emit('payment_confirmed', { booking_id });
+  return res.json({ success: true });
+});
+
+router.post('/release-lock', requireAuth, async (req: Request, res: Response) => {
+  const { booking_id } = req.body;
+  if (!booking_id) return res.status(400).json({ error: 'booking_id is required' });
+  const bRes = await query('SELECT * FROM bookings WHERE id=$1 AND customer_id=$2', [booking_id, req.user!.userId]);
+  if (!bRes.rows[0]) return res.status(404).json({ error: 'Booking not found' });
+  if (bRes.rows[0].payment_status !== 'paid') {
+    await query("UPDATE bookings SET payment_status='failed' WHERE id=$1 AND payment_status='pending'", [booking_id]);
+  }
+  await releasePaymentHold(booking_id);
   return res.json({ success: true });
 });
 
@@ -36,7 +52,17 @@ router.post('/webhook', async (req: Request, res: Response) => {
   const event = JSON.parse(body.toString());
   if (event.event === 'payment.captured') {
     const notes = event.payload.payment.entity.notes;
-    if (notes?.booking_id) await query(`UPDATE bookings SET payment_status='paid' WHERE id=$1 AND payment_status!='paid'`, [notes.booking_id]);
+    if (notes?.booking_id) {
+      await query(`UPDATE bookings SET payment_status='paid' WHERE id=$1 AND payment_status!='paid'`, [notes.booking_id]);
+      await releasePaymentHold(notes.booking_id);
+    }
+  }
+  if (event.event === 'payment.failed') {
+    const notes = event.payload.payment.entity.notes;
+    if (notes?.booking_id) {
+      await query("UPDATE bookings SET payment_status='failed' WHERE id=$1 AND payment_status='pending'", [notes.booking_id]);
+      await releasePaymentHold(notes.booking_id);
+    }
   }
   return res.json({ received: true });
 });

@@ -104,9 +104,11 @@ export default function BookPage() {
     if (!selectedSlot || !address.trim()) return;
     setError('');
     setLoading(true);
+    let bookingId: string | null = null;
     try {
       const bookingRes = await bookingsApi.create({ worker_id: workerId, slot_id: selectedSlot.id, address, description });
       const booking = bookingRes.data as BookingResponse;
+      bookingId = booking.id;
       const orderRes = await paymentsApi.createOrder(booking.id);
       const { order_id, amount, currency, key_id } = orderRes.data;
 
@@ -126,11 +128,21 @@ export default function BookPage() {
           router.push(`/booking/${booking.id}/confirmed`);
         },
         theme: { color: '#2563eb' },
-        modal: { ondismiss: () => setLoading(false) },
+        modal: {
+          ondismiss: async () => {
+            if (bookingId) {
+              try { await paymentsApi.releaseLock(bookingId); } catch {}
+            }
+            setLoading(false);
+          },
+        },
       });
 
       rzp.open();
     } catch (err: unknown) {
+      if (bookingId) {
+        try { await paymentsApi.releaseLock(bookingId); } catch {}
+      }
       const message = typeof err === 'object' && err !== null && 'response' in err
         ? (err as { response?: { data?: { error?: string } } }).response?.data?.error
         : undefined;

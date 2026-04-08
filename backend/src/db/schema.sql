@@ -89,6 +89,25 @@ CREATE TABLE availability_slots (
   UNIQUE (worker_id, date, start_time)
 );
 
+CREATE TABLE worker_availability (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  worker_id UUID NOT NULL REFERENCES worker_profiles(id) ON DELETE CASCADE,
+  day_of_week INT NOT NULL CHECK (day_of_week BETWEEN 0 AND 6),
+  start_time TIME NOT NULL,
+  end_time TIME NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE (worker_id, day_of_week, start_time)
+);
+
+CREATE TABLE blocked_slots (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  worker_id UUID NOT NULL REFERENCES worker_profiles(id) ON DELETE CASCADE,
+  date DATE NOT NULL,
+  time_slot VARCHAR(20) NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE (worker_id, date, time_slot)
+);
+
 CREATE TABLE bookings (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   customer_id UUID NOT NULL REFERENCES users(id),
@@ -128,6 +147,9 @@ CREATE INDEX idx_bookings_worker ON bookings(worker_id);
 CREATE INDEX idx_bookings_status ON bookings(status);
 CREATE INDEX idx_worker_profiles_category ON worker_profiles(category_id);
 CREATE INDEX idx_availability_slots_worker_date ON availability_slots(worker_id, date);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_availability_slots_worker_date_time_slot ON availability_slots(worker_id, date, start_time);
+CREATE INDEX idx_worker_availability_worker ON worker_availability(worker_id, day_of_week);
+CREATE INDEX idx_blocked_slots_worker_date ON blocked_slots(worker_id, date);
 
 CREATE OR REPLACE FUNCTION update_updated_at()
 RETURNS TRIGGER AS $$

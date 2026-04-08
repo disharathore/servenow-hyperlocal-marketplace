@@ -147,9 +147,14 @@ export default function WorkerDashboard() {
       <header className="bg-white border-b border-gray-100 sticky top-0 z-10">
         <div className="max-w-2xl mx-auto px-4 py-3 flex items-center justify-between">
           <div><p className="font-bold text-gray-900">Hey, {user?.name?.split(' ')[0]} 👋</p><p className="text-xs text-gray-400">Worker dashboard</p></div>
-          <button onClick={toggleAvailability} className="flex items-center gap-2 text-sm font-medium">
-            {available ? <><ToggleRight size={28} className="text-green-500" /><span className="text-green-600">Available</span></> : <><ToggleLeft size={28} className="text-gray-400" /><span className="text-gray-500">Off</span></>}
-          </button>
+          <div className="flex items-center gap-3">
+            <button type="button" className="text-xs font-medium px-3 py-1.5 rounded-full border border-blue-200 text-blue-700 hover:bg-blue-50" onClick={() => router.push('/worker/availability')}>
+              Set Availability
+            </button>
+            <button onClick={toggleAvailability} className="flex items-center gap-2 text-sm font-medium">
+              {available ? <><ToggleRight size={28} className="text-green-500" /><span className="text-green-600">Available</span></> : <><ToggleLeft size={28} className="text-gray-400" /><span className="text-gray-500">Off</span></>}
+            </button>
+          </div>
         </div>
       </header>
       <div className="max-w-2xl mx-auto px-4 py-4 space-y-5">

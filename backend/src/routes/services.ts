@@ -5,6 +5,45 @@ import { getDistanceKm } from '../utils/maps';
 
 const router = Router();
 
+function dateOnly(d: Date) {
+  return d.toISOString().slice(0, 10);
+}
+
+async function ensureMaterializedSlots(workerId: string, fromDate: Date, toDate: Date) {
+  const availability = await query(
+    'SELECT day_of_week, start_time, end_time FROM worker_availability WHERE worker_id = $1',
+    [workerId]
+  );
+  if (!availability.rows.length) return;
+
+  const daysByDow = new Map<number, Array<{ start_time: string; end_time: string }>>();
+  for (const row of availability.rows) {
+    const dow = Number(row.day_of_week);
+    const list = daysByDow.get(dow) || [];
+    list.push({
+      start_time: String(row.start_time).slice(0, 8),
+      end_time: String(row.end_time).slice(0, 8),
+    });
+    daysByDow.set(dow, list);
+  }
+
+  const cursor = new Date(fromDate);
+  while (cursor <= toDate) {
+    const dow = cursor.getDay();
+    const slots = daysByDow.get(dow) || [];
+    for (const slot of slots) {
+      await query(
+        `INSERT INTO availability_slots (worker_id, date, start_time, end_time, is_booked)
+         VALUES ($1, $2, $3::time, $4::time, false)
+         ON CONFLICT (worker_id, date, start_time)
+         DO UPDATE SET end_time = EXCLUDED.end_time`,
+        [workerId, dateOnly(cursor), slot.start_time, slot.end_time]
+      );
+    }
+    cursor.setDate(cursor.getDate() + 1);
+  }
+}
+
 const DEFAULT_CATEGORIES = [
   { slug: 'plumber', name: 'Plumber', icon: '🔧', description: 'Pipe repairs, faucet fitting, drainage', base_price: 299 },
   { slug: 'electrician', name: 'Electrician', icon: '⚡', description: 'Wiring, switches, appliance repair', base_price: 349 },
@@ -66,7 +105,23 @@ router.get('/workers', async (req: Request, res: Response) => {
   const params: unknown[] = []; let idx = 1;
   if (category) { sql += ` AND c.slug = $${idx++}`; params.push(category); }
   if (pincode) { sql += ` AND u.pincode = $${idx++}`; params.push(pincode); }
-  if (date) { sql += ` AND EXISTS (SELECT 1 FROM availability_slots s WHERE s.worker_id = wp.id AND s.date = $${idx++} AND s.is_booked = false)`; params.push(date); }
+  if (date) {
+    sql += ` AND EXISTS (
+      SELECT 1
+      FROM availability_slots s
+      WHERE s.worker_id = wp.id
+        AND s.date = $${idx++}
+        AND s.is_booked = false
+        AND NOT EXISTS (
+          SELECT 1
+          FROM blocked_slots bs
+          WHERE bs.worker_id = s.worker_id
+            AND bs.date = s.date
+            AND bs.time_slot = (to_char(s.start_time, 'HH24:MI') || '-' || to_char(s.end_time, 'HH24:MI'))
+        )
+    )`;
+    params.push(date);
+  }
   sql += ' ORDER BY wp.rating DESC, wp.total_jobs DESC LIMIT 50';
   const result = await query(sql, params);
   let workers = result.rows;
@@ -89,7 +144,25 @@ router.get('/workers/:id', async (req, res) => {
 
 router.get('/workers/:id/slots', async (req, res) => {
   const { date } = req.query;
-  let sql = `SELECT * FROM availability_slots WHERE worker_id = $1 AND is_booked = false AND date >= CURRENT_DATE`;
+  const fromDate = date ? new Date(`${String(date)}T00:00:00`) : new Date();
+  const toDate = date ? new Date(`${String(date)}T00:00:00`) : new Date(Date.now() + 14 * 24 * 60 * 60 * 1000);
+  if (!Number.isNaN(fromDate.getTime()) && !Number.isNaN(toDate.getTime())) {
+    await ensureMaterializedSlots(req.params.id, fromDate, toDate);
+  }
+
+  let sql = `
+    SELECT s.*
+    FROM availability_slots s
+    WHERE s.worker_id = $1
+      AND s.is_booked = false
+      AND s.date >= CURRENT_DATE
+      AND NOT EXISTS (
+        SELECT 1
+        FROM blocked_slots bs
+        WHERE bs.worker_id = s.worker_id
+          AND bs.date = s.date
+          AND bs.time_slot = (to_char(s.start_time, 'HH24:MI') || '-' || to_char(s.end_time, 'HH24:MI'))
+      )`;
   const params: unknown[] = [req.params.id];
   if (date) { sql += ' AND date = $2'; params.push(date as string); }
   else { sql += " AND date <= CURRENT_DATE + INTERVAL '14 days'"; }

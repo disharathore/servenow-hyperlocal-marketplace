@@ -18,21 +18,61 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
   const locked = await acquireLock(`slot:${slot_id}`, 30);
   if (!locked) return res.status(409).json({ error: 'Slot is being booked. Try again.' });
   try {
-    const slotResult = await query('SELECT * FROM availability_slots WHERE id = $1 AND is_booked = false', [slot_id]);
-    if (!slotResult.rows[0]) return res.status(409).json({ error: 'Slot no longer available' });
-    const slot = slotResult.rows[0];
     const workerResult = await query(`SELECT wp.*, c.name as category_name, c.id as category_id, u.name as worker_name FROM worker_profiles wp JOIN categories c ON c.id = wp.category_id JOIN users u ON u.id = wp.user_id WHERE wp.id = $1`, [worker_id]);
     if (!workerResult.rows[0]) return res.status(404).json({ error: 'Worker not found' });
     const worker = workerResult.rows[0];
-    const coords = await geocodeAddress(address);
-    const amount = worker.hourly_rate * 100;
-    const parsedSlotDate = new Date(slot.date);
-    const slotDate = Number.isNaN(parsedSlotDate.getTime())
-      ? String(slot.date).slice(0, 10)
-      : parsedSlotDate.toISOString().slice(0, 10);
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
+      const slotResult = await client.query(
+        'SELECT * FROM availability_slots WHERE id = $1 AND worker_id = $2 FOR UPDATE',
+        [slot_id, worker_id]
+      );
+      if (!slotResult.rows[0]) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ error: 'Slot not found' });
+      }
+
+      const slot = slotResult.rows[0];
+      if (slot.is_booked) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({ error: 'Slot already booked' });
+      }
+
+      const slotDate = Number.isNaN(new Date(slot.date).getTime())
+        ? String(slot.date).slice(0, 10)
+        : new Date(slot.date).toISOString().slice(0, 10);
+      const slotStart = String(slot.start_time).slice(0, 5);
+      const slotEnd = String(slot.end_time).slice(0, 5);
+      const slotLabel = `${slotStart}-${slotEnd}`;
+
+      const availabilityCheck = await client.query(
+        `SELECT 1
+         FROM worker_availability wa
+         WHERE wa.worker_id = $1
+           AND wa.day_of_week = EXTRACT(DOW FROM $2::date)::int
+           AND wa.start_time <= $3::time
+           AND wa.end_time >= $4::time
+         LIMIT 1`,
+        [worker_id, slotDate, slotStart, slotEnd]
+      );
+      if (!availabilityCheck.rows[0]) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({ error: 'Selected slot is outside worker availability' });
+      }
+
+      const blockedCheck = await client.query(
+        'SELECT 1 FROM blocked_slots WHERE worker_id = $1 AND date = $2::date AND time_slot = $3 LIMIT 1',
+        [worker_id, slotDate, slotLabel]
+      );
+      if (blockedCheck.rows[0]) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({ error: 'Slot already booked' });
+      }
+
+      const coords = await geocodeAddress(address);
+      const amount = worker.hourly_rate * 100;
+
       const bookingResult = await client.query(
         `INSERT INTO bookings (customer_id,worker_id,category_id,slot_id,description,address,lat,lng,scheduled_at,amount)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,($9::date + $10::time),$11)
@@ -60,7 +100,13 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
 
       io.to(`worker:${worker_id}`).emit('new_booking', { booking_id: booking.id, category: worker.category_name, address, scheduled_at: booking.scheduled_at, amount });
       return res.status(201).json(booking);
-    } catch (err) { await client.query('ROLLBACK'); throw err; }
+    } catch (err: unknown) {
+      await client.query('ROLLBACK');
+      if (typeof err === 'object' && err !== null && 'code' in err && (err as { code?: string }).code === '23505') {
+        return res.status(409).json({ error: 'Slot already booked' });
+      }
+      throw err;
+    }
     finally { client.release(); }
   } finally { await releaseLock(`slot:${slot_id}`); }
 });
