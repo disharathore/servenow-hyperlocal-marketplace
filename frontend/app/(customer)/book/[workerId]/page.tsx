@@ -199,7 +199,7 @@ export default function BookPage() {
 
         <div className="card p-4">
           <h2 className="font-semibold text-gray-900 mb-3">Describe the problem <span className="text-gray-400 font-normal">(optional)</span></h2>
-          <textarea className="input resize-none" rows={2} placeholder="e.g. Kitchen tap is leaking since morning..." value={description} onChange={e => setDescription(e.target.value)} />
+          <textarea className="w-full border border-gray-200 rounded-xl px-4 py-3 text-gray-900 placeholder-gray-400 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none min-h-[80px]" rows={2} placeholder="e.g. Kitchen tap is leaking since morning..." value={description} onChange={e => setDescription(e.target.value)} />
         </div>
 
         {error && <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-red-600 text-sm">{error}</div>}

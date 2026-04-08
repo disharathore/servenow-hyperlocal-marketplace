@@ -4,9 +4,17 @@ import { useParams } from 'next/navigation';
 import AppWrapperLayout from '@/app/_components/AppWrapperLayout';
 import { bookingsApi } from '@/lib/api';
 
+interface InvoiceBooking {
+  id: string;
+  amount: number;
+  category_name: string;
+  worker_name: string;
+  address: string;
+}
+
 export default function InvoicePage() {
   const { bookingId } = useParams() as { bookingId: string };
-  const [booking, setBooking] = useState<any>(null);
+  const [booking, setBooking] = useState<InvoiceBooking | null>(null);
 
   const totalPaid = booking ? booking.amount / 100 : 0;
   const baseAmount = totalPaid ? totalPaid / 1.18 : 0;

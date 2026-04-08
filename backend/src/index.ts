@@ -25,6 +25,7 @@ if (missingEnvVars.length > 0) {
 import { rateLimiter } from './middleware/rateLimiter';
 import authRoutes from './routes/auth';
 import servicesRoutes from './routes/services';
+import { ensureCategoriesSeeded } from './routes/services';
 import bookingsRoutes from './routes/bookings';
 import jobsRoutes from './routes/jobs';
 import paymentsRoutes from './routes/payments';
@@ -80,4 +81,12 @@ app.use('/api/admin', adminRoutes);
 registerSocketHandlers(io);
 
 const PORT = process.env.PORT || 4000;
-server.listen(PORT, () => console.log(`🚀 ServeNow backend on port ${PORT}`));
+server.listen(PORT, async () => {
+  console.log(`🚀 ServeNow backend on port ${PORT}`);
+  try {
+    await ensureCategoriesSeeded();
+    console.log('✅ Categories seeded');
+  } catch (err) {
+    console.warn('⚠️ Category seeding skipped:', err);
+  }
+});

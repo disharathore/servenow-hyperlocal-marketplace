@@ -28,7 +28,7 @@ const DEFAULT_CATEGORIES = [
   { slug: 'interior-design', name: 'Interior Design', icon: '🛋️', description: 'Consultation and home styling', base_price: 1499 },
 ];
 
-async function ensureCategoriesSeeded() {
+export async function ensureCategoriesSeeded() {
   const countResult = await query('SELECT COUNT(*)::int AS count FROM categories WHERE is_active = true');
   const count = countResult.rows[0]?.count || 0;
   if (count >= 15) return;
@@ -50,7 +50,6 @@ async function ensureCategoriesSeeded() {
 }
 
 router.get('/categories', async (_req, res) => {
-  await ensureCategoriesSeeded();
   const r = await query('SELECT * FROM categories WHERE is_active = true ORDER BY name');
   return res.json(r.rows);
 });

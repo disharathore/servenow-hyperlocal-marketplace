@@ -1,10 +1,10 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
-import { bookingsApi, jobsApi } from '@/lib/api';
+import { authApi, bookingsApi, jobsApi } from '@/lib/api';
 import { useAuthStore } from '@/lib/store';
 import { connectSocket } from '@/lib/socket';
 import { useRouter } from 'next/navigation';
-import { MapPin, Clock, CheckCircle, ToggleLeft, ToggleRight, Phone } from 'lucide-react';
+import { MapPin, Clock, CheckCircle, ToggleLeft, ToggleRight, Phone, Star, Briefcase } from 'lucide-react';
 
 interface Booking {
   id: string;
@@ -25,6 +25,12 @@ interface Earnings {
   this_week: number | string;
 }
 
+interface WorkerMeta {
+  rating: number | null;
+  total_jobs: number | null;
+  is_available: boolean | null;
+}
+
 interface BookingCardProps {
   booking: Booking;
   onAccept?: () => void;
@@ -38,6 +44,7 @@ export default function WorkerDashboard() {
   const { user } = useAuthStore();
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [earnings, setEarnings] = useState<Earnings | null>(null);
+  const [workerMeta, setWorkerMeta] = useState<WorkerMeta | null>(null);
   const [available, setAvailable] = useState(true);
   const [loading, setLoading] = useState(true);
   const bookingsRef = useRef<Booking[]>([]);
@@ -53,16 +60,26 @@ export default function WorkerDashboard() {
     if (!user.worker_profile_id) { router.push('/worker/setup'); return; }
 
     const loadDashboard = async () => {
-      const [bRes, eRes] = await Promise.all([bookingsApi.list(), jobsApi.earnings()]);
+      const [bRes, eRes, meRes] = await Promise.all([bookingsApi.list(), jobsApi.earnings(), authApi.me()]);
       setBookings(bRes.data as Booking[]);
       setEarnings(eRes.data as Earnings);
+      setWorkerMeta({
+        rating: meRes.data?.rating != null ? Number(meRes.data.rating) : null,
+        total_jobs: meRes.data?.total_jobs != null ? Number(meRes.data.total_jobs) : null,
+        is_available: meRes.data?.is_available ?? null,
+      });
+      if (typeof meRes.data?.is_available === 'boolean') setAvailable(meRes.data.is_available);
       setLoading(false);
     };
 
     loadDashboard();
     const socket = connectSocket();
-    socket.on('new_booking', () => bookingsApi.list().then(r => setBookings(r.data as Booking[])));
-    return () => { socket.off('new_booking'); };
+    socket.on('new_booking', loadDashboard);
+    socket.on('job_completed', loadDashboard);
+    return () => {
+      socket.off('new_booking', loadDashboard);
+      socket.off('job_completed', loadDashboard);
+    };
   }, [user, router]);
 
   useEffect(() => {
@@ -111,8 +128,14 @@ export default function WorkerDashboard() {
     } else {
       await actions[action](bookingId);
     }
-    const res = await bookingsApi.list();
-    setBookings(res.data as Booking[]);
+    const [bRes, eRes, meRes] = await Promise.all([bookingsApi.list(), jobsApi.earnings(), authApi.me()]);
+    setBookings(bRes.data as Booking[]);
+    setEarnings(eRes.data as Earnings);
+    setWorkerMeta({
+      rating: meRes.data?.rating != null ? Number(meRes.data.rating) : null,
+      total_jobs: meRes.data?.total_jobs != null ? Number(meRes.data.total_jobs) : null,
+      is_available: meRes.data?.is_available ?? null,
+    });
   }
 
   const pending = bookings.filter(b => b.status === 'pending');
@@ -131,9 +154,12 @@ export default function WorkerDashboard() {
       </header>
       <div className="max-w-2xl mx-auto px-4 py-4 space-y-5">
         {earnings && (
-          <div className="grid grid-cols-2 gap-3">
-            {[{label:'This week',val:`₹${Math.floor(Number(earnings.this_week)/100)}`},{label:'This month',val:`₹${Math.floor(Number(earnings.this_month)/100)}`},{label:'Total earned',val:`₹${Math.floor(Number(earnings.total_earnings)/100)}`},{label:'Total jobs',val:earnings.total_jobs}].map(s => (
-              <div key={s.label} className="card p-4"><p className="text-xs text-gray-400 mb-1">{s.label}</p><p className="text-xl font-bold text-gray-900">{s.val}</p></div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            {[{label:'This week',val:`₹${Math.floor(Number(earnings.this_week)/100)}`,icon:<Clock size={14} className="text-blue-500" />},{label:'This month',val:`₹${Math.floor(Number(earnings.this_month)/100)}`,icon:<Clock size={14} className="text-indigo-500" />},{label:'Total earned',val:`₹${Math.floor(Number(earnings.total_earnings)/100)}`,icon:<Briefcase size={14} className="text-green-500" />},{label:'Completed jobs',val:earnings.total_jobs,icon:<CheckCircle size={14} className="text-emerald-500" />},{label:'Rating',val:workerMeta?.rating ? workerMeta.rating.toFixed(1) : 'N/A',icon:<Star size={14} className="text-amber-500" />},{label:'Lifetime jobs',val:workerMeta?.total_jobs ?? 0,icon:<Briefcase size={14} className="text-slate-500" />}].map(s => (
+              <div key={s.label} className="card p-4 border border-gray-100">
+                <div className="flex items-center gap-1.5 text-xs text-gray-400 mb-1">{s.icon}<span>{s.label}</span></div>
+                <p className="text-xl font-bold text-gray-900">{s.val}</p>
+              </div>
             ))}
           </div>
         )}

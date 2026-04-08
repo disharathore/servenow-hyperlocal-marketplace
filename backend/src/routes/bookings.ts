@@ -26,12 +26,18 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
     const worker = workerResult.rows[0];
     const coords = await geocodeAddress(address);
     const amount = worker.hourly_rate * 100;
+    const parsedSlotDate = new Date(slot.date);
+    const slotDate = Number.isNaN(parsedSlotDate.getTime())
+      ? String(slot.date).slice(0, 10)
+      : parsedSlotDate.toISOString().slice(0, 10);
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
       const bookingResult = await client.query(
-        `INSERT INTO bookings (customer_id,worker_id,category_id,slot_id,description,address,lat,lng,scheduled_at,amount) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
-        [req.user!.userId, worker_id, worker.category_id, slot_id, description||null, address, coords?.lat||null, coords?.lng||null, `${slot.date}T${slot.start_time}`, amount]
+        `INSERT INTO bookings (customer_id,worker_id,category_id,slot_id,description,address,lat,lng,scheduled_at,amount)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,($9::date + $10::time),$11)
+         RETURNING *`,
+        [req.user!.userId, worker_id, worker.category_id, slot_id, description||null, address, coords?.lat||null, coords?.lng||null, slotDate, slot.start_time, amount]
       );
       await client.query('UPDATE availability_slots SET is_booked = true WHERE id = $1', [slot_id]);
       await client.query('COMMIT');

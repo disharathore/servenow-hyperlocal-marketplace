@@ -68,7 +68,7 @@ export default function WorkerSetupPage() {
               {categories.map(c => <option key={c.id} value={c.id}>{c.icon ? `${c.icon} ` : ''}{c.name}</option>)}
             </select>
           </div>
-          <div><label className="block text-sm text-gray-600 mb-1">Short bio</label><textarea className="input resize-none" rows={3} placeholder="Experienced plumber with 5 years in residential repairs…" value={bio} onChange={e=>setBio(e.target.value)} required /></div>
+          <div><label className="block text-sm text-gray-600 mb-1">Short bio</label><textarea className="w-full border border-gray-200 rounded-xl px-4 py-3 text-gray-900 placeholder-gray-400 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none min-h-[80px]" rows={3} placeholder="Experienced plumber with 5 years in residential repairs…" value={bio} onChange={e=>setBio(e.target.value)} required /></div>
           <div className="grid grid-cols-2 gap-3">
             <div><label className="block text-sm text-gray-600 mb-1">Experience (years)</label><input type="number" min={0} max={50} className="input" value={exp} onChange={e=>setExp(Number(e.target.value))} /></div>
             <div><label className="block text-sm text-gray-600 mb-1">Hourly rate (₹)</label><input type="number" min={100} max={5000} step={50} className="input" value={rate} onChange={e=>setRate(Number(e.target.value))} /></div>

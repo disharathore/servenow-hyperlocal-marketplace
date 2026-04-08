@@ -220,7 +220,7 @@ export default function TrackPage() {
           <div className="border border-red-200 bg-red-50 rounded-xl p-3 space-y-2">
             <p className="text-sm font-medium text-red-700">Describe the issue for admin review</p>
             <textarea
-              className="input resize-none"
+              className="w-full border border-gray-200 rounded-xl px-4 py-3 text-gray-900 placeholder-gray-400 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none min-h-[80px]"
               rows={3}
               placeholder="Example: Worker marked job complete without resolving leakage issue"
               value={disputeReason}

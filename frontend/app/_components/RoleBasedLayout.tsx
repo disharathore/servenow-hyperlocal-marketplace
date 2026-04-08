@@ -4,7 +4,6 @@ import { useRouter, usePathname } from 'next/navigation';
 import { useAuthStore } from '@/lib/store';
 import { Toaster } from 'sonner';
 import { toast } from 'sonner';
-import { Flame } from 'lucide-react';
 import { connectSocket } from '@/lib/socket';
 
 interface RoleBasedLayoutProps { children: React.ReactNode; }
@@ -13,12 +12,12 @@ export default function RoleBasedLayout({ children }: RoleBasedLayoutProps) {
   const router = useRouter();
   const pathname = usePathname();
   const { user, token } = useAuthStore();
-  const [mounted, setMounted] = useState(false);
+  const [hydrated, setHydrated] = useState(false);
 
-  useEffect(() => { setMounted(true); }, []);
+  useEffect(() => { setHydrated(true); }, []);
 
   useEffect(() => {
-    if (!mounted) return;
+    if (!hydrated) return;
     
     // Route protection logic
     const isAuthPage = pathname?.startsWith('/login');
@@ -37,10 +36,10 @@ export default function RoleBasedLayout({ children }: RoleBasedLayoutProps) {
       if (user.role === 'customer' && (onWorkerRoute || onAdminRoute)) router.push('/');
       if (user.role === 'admin' && !onAdminRoute) router.push('/admin');
     }
-  }, [user, token, pathname, mounted, router]);
+  }, [user, token, pathname, hydrated, router]);
 
   useEffect(() => {
-    if (!mounted || !user || !token) return;
+    if (!hydrated || !user || !token) return;
     const socket = connectSocket();
 
     socket.on('new_booking', (payload: { category?: string; amount?: number }) => {
@@ -72,18 +71,7 @@ export default function RoleBasedLayout({ children }: RoleBasedLayoutProps) {
       socket.off('job_started');
       socket.off('job_completed');
     };
-  }, [mounted, user, token]);
-
-  if (!mounted) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-white">
-        <div className="flex flex-col items-center gap-3">
-          <Flame size={40} className="text-blue-600 animate-bounce" />
-          <p className="text-gray-600 font-medium">Loading ServeNow…</p>
-        </div>
-      </div>
-    );
-  }
+  }, [hydrated, user, token]);
 
   return (
     <>

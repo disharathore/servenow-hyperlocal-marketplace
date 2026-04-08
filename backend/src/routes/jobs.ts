@@ -95,7 +95,16 @@ router.post('/:bookingId/complete', requireAuth, requireRole('worker'), async (r
 router.get('/earnings', requireAuth, requireRole('worker'), async (req, res) => {
   const wId = await getWId(req.user!.userId);
   if (!wId) return res.status(404).json({ error: 'Worker profile not found' });
-  const r = await query(`SELECT COUNT(*) as total_jobs, COALESCE(SUM(amount),0) as total_earnings, COALESCE(SUM(CASE WHEN DATE_TRUNC('month',completed_at)=DATE_TRUNC('month',NOW()) THEN amount ELSE 0 END),0) as this_month, COALESCE(SUM(CASE WHEN DATE_TRUNC('week',completed_at)=DATE_TRUNC('week',NOW()) THEN amount ELSE 0 END),0) as this_week FROM bookings WHERE worker_id=$1 AND status='completed' AND payment_status='paid'`, [wId]);
+  const r = await query(
+    `SELECT
+      COUNT(*)::int AS total_jobs,
+      COALESCE(SUM(amount), 0) AS total_earnings,
+      COALESCE(SUM(CASE WHEN DATE_TRUNC('month', completed_at) = DATE_TRUNC('month', NOW()) THEN amount ELSE 0 END), 0) AS this_month,
+      COALESCE(SUM(CASE WHEN DATE_TRUNC('week', completed_at) = DATE_TRUNC('week', NOW()) THEN amount ELSE 0 END), 0) AS this_week
+     FROM bookings
+     WHERE worker_id = $1 AND status = 'completed'`,
+    [wId]
+  );
   return res.json(r.rows[0]);
 });
 
