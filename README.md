@@ -182,3 +182,114 @@ Run through [DEMO_CHECKLIST.md](DEMO_CHECKLIST.md) before sharing with recruiter
 - Worker earnings dashboard + payout requests
 - Review system (only after confirmed job completion)
 - Admin panel with platform metrics
+
+---
+
+## Main Add-ons Highlights
+
+- Smart marketplace job flow
+	- Worker incoming queue via `GET /jobs/available` with REQUESTED-state mapping.
+	- Worker actions: accept, reject, arriving, start, complete with real-time updates.
+
+- Auto-assignment engine
+	- Customer booking can auto-assign nearest available worker by category and location.
+	- Socket notification is pushed to assigned worker immediately.
+
+- Availability system upgrades
+	- Worker recurring schedule management (`worker_availability`) with API support.
+	- Materialized `availability_slots` generated for upcoming dates.
+	- Blocked-slot handling with graceful compatibility checks.
+
+- Notification persistence
+	- Critical booking/job lifecycle events now write to DB notifications (not socket-only).
+	- Notifications tab can show durable event history.
+
+- Admin quality-of-life controls
+	- "Show real only" filter for bookings to exclude simulation data.
+	- Heatmap and realtime dashboard activity improvements.
+
+- Simulation isolation
+	- `bookings.is_simulated` flag added.
+	- Simulation-generated records are marked and filterable.
+
+- Resilience and DX improvements
+	- Better timeout handling and clearer frontend error states.
+	- Startup/schema compatibility helpers for local drift scenarios.
+
+---
+
+## Screenshots
+
+Project screenshots are not yet committed in this repository.
+
+Recommended screenshot paths to add:
+
+- `frontend/public/screenshots/login.png`
+- `frontend/public/screenshots/customer-booking.png`
+- `frontend/public/screenshots/worker-dashboard.png`
+- `frontend/public/screenshots/admin-dashboard.png`
+
+Once added, embed them in README like this:
+
+```md
+![Login](frontend/public/screenshots/login.png)
+![Customer Booking](frontend/public/screenshots/customer-booking.png)
+![Worker Dashboard](frontend/public/screenshots/worker-dashboard.png)
+![Admin Dashboard](frontend/public/screenshots/admin-dashboard.png)
+```
+
+Current committed visual assets:
+
+![App Icon 192](frontend/public/icon-192.png)
+![App Icon 512](frontend/public/icon-512.png)
+
+---
+
+## Demo Flow (Recruiter / Interview Ready)
+
+Use this sequence for a smooth 3-5 minute product walkthrough.
+
+### 1. Start the platform
+
+```bash
+npm run dev
+```
+
+- Frontend: `http://localhost:3000`
+- Backend API: `http://localhost:4000`
+
+### 2. Login quickly with demo mode
+
+- Open Login page and use:
+	- Demo Customer
+	- Demo Worker
+- No manual OTP entry needed for the guided demo path.
+
+### 3. Customer journey
+
+1. Go to home/services and pick a category.
+2. Open a worker profile and create a booking.
+3. Show price context/surge info and booking confirmation.
+4. Open tracking screen to watch status progression.
+
+### 4. Worker journey
+
+1. Open worker dashboard.
+2. Show incoming REQUESTED jobs.
+3. Accept job, mark arriving, start, and complete.
+4. Show earnings cards and job history updates.
+
+### 5. Admin journey
+
+1. Open admin dashboard for live metrics.
+2. Open bookings tab and toggle "Show real only".
+3. Open heatmap view for demand/supply visibility.
+4. Optionally run guided scenario from admin panel.
+
+### 6. Key proof points to mention while demoing
+
+- Real-time socket updates across customer, worker, and admin views.
+- Booking lifecycle FSM: pending → accepted → arriving → in_progress → completed.
+- Persistent notifications written to database (not socket-only).
+- Simulation bookings are isolated via `is_simulated` and filterable in admin.
+- Availability management supports recurring schedule + blocked slots.
