@@ -4,6 +4,7 @@ import { bookingsApi } from '@/lib/api';
 import Link from 'next/link';
 import { ArrowLeft, MapPin, Clock } from 'lucide-react';
 import { useRouter } from 'next/navigation';
+import { useAuthStore } from '@/lib/store';
 
 const STATUS_COLORS: Record<string,string> = { pending:'badge-pending', accepted:'badge-accepted', in_progress:'badge-in_progress', completed:'badge-completed', cancelled:'badge-cancelled', disputed:'bg-yellow-100 text-yellow-700' };
 
@@ -20,10 +21,26 @@ interface Booking {
 
 export default function DashboardPage() {
   const router = useRouter();
+  const user = useAuthStore(s => s.user);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [filter, setFilter] = useState('');
+
+  useEffect(() => {
+    if (!user) {
+      router.push('/login');
+      return;
+    }
+    if (user.role === 'worker') {
+      router.push('/worker/dashboard');
+      return;
+    }
+    if (user.role === 'admin') {
+      router.push('/admin');
+      return;
+    }
+  }, [user, router]);
 
   const fetchBookings = async () => {
     setLoading(true);
@@ -39,8 +56,9 @@ export default function DashboardPage() {
   };
 
   useEffect(() => {
+    if (!user || user.role !== 'customer') return;
     fetchBookings();
-  }, [filter]);
+  }, [filter, user]);
 
   return (
     <div className="min-h-screen bg-gray-50">

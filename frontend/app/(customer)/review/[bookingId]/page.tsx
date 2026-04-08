@@ -1,14 +1,27 @@
 'use client';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { reviewsApi } from '@/lib/api';
+import { useAuthStore } from '@/lib/store';
 import { Star, ArrowLeft } from 'lucide-react';
 
 export default function ReviewPage() {
   const { bookingId } = useParams() as { bookingId: string };
   const router = useRouter();
+  const user = useAuthStore(s => s.user);
   const [rating, setRating] = useState(0); const [hovered, setHovered] = useState(0);
   const [comment, setComment] = useState(''); const [loading, setLoading] = useState(false); const [submitted, setSubmitted] = useState(false);
+
+  useEffect(() => {
+    if (!user) {
+      router.push('/login');
+      return;
+    }
+    if (user.role !== 'customer') {
+      router.push(user.role === 'worker' ? '/worker/dashboard' : '/admin');
+      return;
+    }
+  }, [user, router]);
 
   async function handleSubmit() {
     if (rating === 0) return;

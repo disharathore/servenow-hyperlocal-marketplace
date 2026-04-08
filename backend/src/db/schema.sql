@@ -128,3 +128,14 @@ CREATE INDEX idx_bookings_worker ON bookings(worker_id);
 CREATE INDEX idx_bookings_status ON bookings(status);
 CREATE INDEX idx_worker_profiles_category ON worker_profiles(category_id);
 CREATE INDEX idx_availability_slots_worker_date ON availability_slots(worker_id, date);
+
+CREATE OR REPLACE FUNCTION update_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.updated_at = NOW();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_bookings_updated_at BEFORE UPDATE ON bookings FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+CREATE TRIGGER trg_users_updated_at BEFORE UPDATE ON users FOR EACH ROW EXECUTE FUNCTION update_updated_at();

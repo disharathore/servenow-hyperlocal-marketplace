@@ -56,6 +56,8 @@ export default function ServiceListingPage() {
     available: true
   });
 
+  type Filters = typeof filters;
+
   useEffect(() => {
     if (!user) { router.push('/login'); return; }
     if (user.role === 'worker') { router.push('/worker/dashboard'); return; }
@@ -91,7 +93,7 @@ export default function ServiceListingPage() {
       .then(r => {
         setWorkers(r.data);
         setLoading(false);
-        applyFilters(r.data);
+        applyFilters(r.data, filters);
       })
       .catch(() => {
         setLoading(false);
@@ -106,27 +108,27 @@ export default function ServiceListingPage() {
     servicesApi.workers({ category, lat: userLocation.lat, lng: userLocation.lng })
       .then(r => {
         setWorkers(r.data);
-        applyFilters(r.data);
+        applyFilters(r.data, filters);
       })
       .catch(() => setError('Unable to load workers right now. Please try again.'))
       .finally(() => setLoading(false));
   };
 
-  const applyFilters = (workersList: Worker[]) => {
+  const applyFilters = (workersList: Worker[], currentFilters: Filters) => {
     const filtered = workersList.filter(w => 
-      w.rating >= filters.minRating &&
-      w.hourly_rate <= filters.maxPrice &&
-      ((w.distance_km ?? 0) <= filters.maxDistance || w.distance_km == null) &&
-      (!filters.verified || w.is_background_verified) &&
-      (!filters.available || w.is_available)
+      w.rating >= currentFilters.minRating &&
+      w.hourly_rate <= currentFilters.maxPrice &&
+      ((w.distance_km ?? 0) <= currentFilters.maxDistance || w.distance_km == null) &&
+      (!currentFilters.verified || w.is_background_verified) &&
+      (!currentFilters.available || w.is_available)
     );
     setFilteredWorkers(filtered);
   };
 
-  const handleFilterChange = (key: string, value: any) => {
+  const handleFilterChange = (key: keyof Filters, value: Filters[keyof Filters]) => {
     const updated = { ...filters, [key]: value };
     setFilters(updated);
-    applyFilters(workers);
+    applyFilters(workers, updated);
   };
 
   if (loading || locationLoading) return <PageLoader />;
@@ -242,8 +244,9 @@ export default function ServiceListingPage() {
 
                 <button
                   onClick={() => {
-                    setFilters({ minRating: 0, maxPrice: 10000, maxDistance: 30, verified: false, available: true });
-                    applyFilters(workers);
+                    const cleared = { minRating: 0, maxPrice: 10000, maxDistance: 30, verified: false, available: true };
+                    setFilters(cleared);
+                    applyFilters(workers, cleared);
                   }}
                   className="w-full text-sm text-blue-600 font-medium hover:bg-blue-50 py-2 rounded transition-colors"
                 >
@@ -293,22 +296,20 @@ export default function ServiceListingPage() {
                       exit={{ opacity: 0 }}
                       transition={{ delay: idx * 0.05 }}
                     >
-                      <Link href={`/book/${worker.id}`}>
-                        <WorkerCard
-                          id={worker.id}
-                          name={worker.name}
-                          category={worker.category_name}
-                          rating={worker.rating}
-                          ratingCount={worker.rating_count}
-                          hourlyRate={worker.hourly_rate}
-                          totalJobs={worker.total_jobs}
-                          distanceKm={worker.distance_km ?? null}
-                          isVerified={worker.is_background_verified}
-                          locality={worker.locality || 'Nearby'}
-                          isAvailable={worker.is_available}
-                          experienceYears={worker.experience_years}
-                        />
-                      </Link>
+                      <WorkerCard
+                        id={worker.id}
+                        name={worker.name}
+                        category={worker.category_name}
+                        rating={worker.rating}
+                        ratingCount={worker.rating_count}
+                        hourlyRate={worker.hourly_rate}
+                        totalJobs={worker.total_jobs}
+                        distanceKm={worker.distance_km ?? null}
+                        isVerified={worker.is_background_verified}
+                        locality={worker.locality || 'Nearby'}
+                        isAvailable={worker.is_available}
+                        experienceYears={worker.experience_years}
+                      />
                     </motion.div>
                   ))}
                 </AnimatePresence>

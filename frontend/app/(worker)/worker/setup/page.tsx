@@ -39,6 +39,12 @@ export default function WorkerSetupPage() {
     if (!bio.trim()) return setError('Please add a bio');
     if (!categoryId) return setError('Please select a service category');
     if (slots.length === 0) return setError('Add at least one slot');
+    for (const slot of slots) {
+      if (slot.start >= slot.end) {
+        setError(`Invalid slot: ${slot.day} end time must be after start time`);
+        return;
+      }
+    }
     setError(''); setLoading(true);
     try {
       if (pincode) await api.patch('/auth/profile', { pincode, role: 'worker' });

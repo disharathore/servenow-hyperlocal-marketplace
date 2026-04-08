@@ -1,14 +1,22 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import { bookingsApi } from '@/lib/api';
 import { connectSocket } from '@/lib/socket';
+import { useAuthStore } from '@/lib/store';
 import { Loader } from '@googlemaps/js-api-loader';
 import { Clock, MapPin, Phone, Star } from 'lucide-react';
 import { toast } from 'sonner';
 
 const STATUS_STEPS = ['pending','accepted','in_progress','completed'];
-const STATUS_LABELS: Record<string,string> = { pending:'Waiting for worker to accept', accepted:'Worker accepted — heading your way', in_progress:'Worker is at your location', completed:'Job completed! 🎉', cancelled:'Booking cancelled', disputed:'Dispute raised and under review' };
+const STATUS_LABELS: Record<string,string> = {
+  pending: 'Waiting for worker to accept your booking',
+  accepted: 'Worker accepted! They will start heading to you soon',
+  in_progress: 'Worker is on the way to your location',
+  completed: 'Job completed! 🎉',
+  cancelled: 'Booking cancelled',
+  disputed: 'Dispute raised — under admin review',
+};
 
 interface Booking {
   id: string;
@@ -26,15 +34,31 @@ interface Booking {
 
 export default function TrackPage() {
   const { jobId } = useParams() as { jobId: string };
+  const router = useRouter();
+  const user = useAuthStore(s => s.user);
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstance = useRef<google.maps.Map | null>(null);
   const workerMarker = useRef<google.maps.Marker | null>(null);
+  const destinationMarker = useRef<google.maps.Marker | null>(null);
+  const mapInitialised = useRef(false);
+  const initialBookingRef = useRef<Booking | null>(null);
   const [booking, setBooking] = useState<Booking | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [disputing, setDisputing] = useState(false);
   const [showDisputeForm, setShowDisputeForm] = useState(false);
   const [disputeReason, setDisputeReason] = useState('');
+
+  useEffect(() => {
+    if (!user) {
+      router.push('/login');
+      return;
+    }
+    if (user.role === 'admin') {
+      router.push('/admin');
+      return;
+    }
+  }, [user, router]);
 
   const fetchBooking = async () => {
     setLoading(true);
@@ -50,28 +74,70 @@ export default function TrackPage() {
   };
 
   useEffect(() => {
+    if (!user || user.role === 'admin') return;
     fetchBooking();
-  }, [jobId]);
+  }, [jobId, user]);
 
   useEffect(() => {
-    if (!booking || !mapRef.current) return;
+    if (!initialBookingRef.current && booking) {
+      initialBookingRef.current = booking;
+    }
+  }, [booking]);
+
+  useEffect(() => {
+    if (!mapRef.current || mapInitialised.current) return;
+
+    mapInitialised.current = true;
     const loader = new Loader({ apiKey: process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY!, version: 'weekly' });
     loader.load().then(() => {
       const googleMaps = (window as any).google;
-      const center = { lat: booking.lat||28.6139, lng: booking.lng||77.2090 };
+      const initialBooking = initialBookingRef.current;
+      const center = { lat: initialBooking?.lat || 28.6139, lng: initialBooking?.lng || 77.2090 };
       mapInstance.current = new googleMaps.maps.Map(mapRef.current!, { center, zoom: 15, disableDefaultUI: true, zoomControl: true });
-      new googleMaps.maps.Marker({ position: center, map: mapInstance.current, icon: { url: 'https://maps.google.com/mapfiles/ms/icons/blue-dot.png', scaledSize: new googleMaps.maps.Size(40,40) }, title: 'Your location' });
-      if (booking.worker_lat && booking.worker_lng) updateWorker(booking.worker_lat, booking.worker_lng);
+      destinationMarker.current = new googleMaps.maps.Marker({ position: center, map: mapInstance.current, icon: { url: 'https://maps.google.com/mapfiles/ms/icons/blue-dot.png', scaledSize: new googleMaps.maps.Size(40,40) }, title: 'Your location' });
     });
+  }, []);
+
+  useEffect(() => {
+    if (!booking || !mapInstance.current) return;
+
+    const googleMaps = (window as any).google;
+    const destination = { lat: booking.lat || 28.6139, lng: booking.lng || 77.2090 };
+
+    if (destinationMarker.current) {
+      destinationMarker.current.setPosition(destination);
+    } else {
+      destinationMarker.current = new googleMaps.maps.Marker({
+        position: destination,
+        map: mapInstance.current,
+        icon: { url: 'https://maps.google.com/mapfiles/ms/icons/blue-dot.png', scaledSize: new googleMaps.maps.Size(40,40) },
+        title: 'Your location',
+      });
+    }
+
+    if (booking.worker_lat && booking.worker_lng) {
+      updateWorker(booking.worker_lat, booking.worker_lng);
+    } else {
+      mapInstance.current.panTo(destination);
+      mapInstance.current.setZoom(15);
+    }
   }, [booking]);
 
   function updateWorker(lat: number, lng: number) {
     if (!mapInstance.current) return;
     const googleMaps = (window as any).google;
+    const map = mapInstance.current;
     const pos = { lat, lng };
     if (workerMarker.current) { workerMarker.current.setPosition(pos); }
-    else { workerMarker.current = new googleMaps.maps.Marker({ position: pos, map: mapInstance.current, icon: { url: 'https://maps.google.com/mapfiles/ms/icons/orange-dot.png', scaledSize: new googleMaps.maps.Size(48,48) }, title: 'Worker' }); }
-    if (booking?.lat && booking?.lng) { const b = new googleMaps.maps.LatLngBounds(); b.extend(pos); b.extend({lat: booking.lat, lng: booking.lng}); mapInstance.current.fitBounds(b, 80); }
+    else { workerMarker.current = new googleMaps.maps.Marker({ position: pos, map, icon: { url: 'https://maps.google.com/mapfiles/ms/icons/orange-dot.png', scaledSize: new googleMaps.maps.Size(48,48) }, title: 'Worker' }); }
+
+    const destinationPos = destinationMarker.current?.getPosition();
+    if (destinationPos) {
+      const b = new googleMaps.maps.LatLngBounds();
+      b.extend(pos);
+      b.extend(destinationPos);
+      map.fitBounds(b, 80);
+    }
   }
 
   async function raiseDispute() {
@@ -96,13 +162,14 @@ export default function TrackPage() {
   }
 
   useEffect(() => {
+    if (!user || user.role === 'admin') return;
     const socket = connectSocket();
     socket.emit('track:join', { booking_id: jobId });
     socket.on('worker:location', (data: { lat: number; lng: number }) => updateWorker(data.lat, data.lng));
     socket.on('job_started', () => setBooking((b) => b ? {...b, status:'in_progress'} : b));
     socket.on('job_completed', () => setBooking((b) => b ? {...b, status:'completed'} : b));
     return () => { socket.off('worker:location'); socket.off('job_started'); socket.off('job_completed'); };
-  }, [jobId]);
+  }, [jobId, user]);
 
   if (loading) return <div className="min-h-screen flex items-center justify-center"><div className="animate-pulse text-gray-400">Loading tracking…</div></div>;
   if (error) {
@@ -123,10 +190,7 @@ export default function TrackPage() {
     <div className="min-h-screen bg-gray-50 flex flex-col">
       <div ref={mapRef} className="w-full h-[45vh] bg-gray-200" />
       <div className="flex-1 bg-white rounded-t-3xl -mt-4 relative z-10 p-5 space-y-5 overflow-auto">
-        <div className={`rounded-xl p-3 text-sm font-medium ${booking.status==='completed'?'bg-green-50 text-green-800':booking.status==='cancelled'?'bg-red-50 text-red-800':booking.status==='disputed'?'bg-yellow-50 text-yellow-800':'bg-blue-50 text-blue-800'}`}>{STATUS_LABELS[booking.status]||booking.status}</div>
-        {booking.status !== 'completed' && booking.status !== 'cancelled' && booking.status !== 'disputed' && (
-          <div className="rounded-xl p-3 text-sm font-medium bg-amber-50 text-amber-800">Worker is on the way</div>
-        )}
+        <div className={`rounded-xl p-3 text-sm font-medium ${booking.status==='in_progress'?'bg-amber-50 text-amber-800':booking.status==='completed'?'bg-green-50 text-green-800':booking.status==='cancelled'?'bg-red-50 text-red-800':booking.status==='disputed'?'bg-yellow-50 text-yellow-800':'bg-blue-50 text-blue-800'}`}>{STATUS_LABELS[booking.status]||booking.status}</div>
         {booking.status !== 'cancelled' && booking.status !== 'disputed' && (
           <div className="flex items-center gap-1">
             {STATUS_STEPS.map((_, i) => (

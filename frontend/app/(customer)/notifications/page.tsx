@@ -1,7 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
 import AppWrapperLayout from '@/app/_components/AppWrapperLayout';
-import { connectSocket } from '@/lib/socket';
 
 interface NotificationItem {
   id: string;
@@ -27,32 +26,6 @@ export default function NotificationsPage() {
     }
     localStorage.setItem(COUNT_KEY, '0');
     window.dispatchEvent(new Event('sn-notification-count-updated'));
-
-    const socket = connectSocket();
-    const add = (title: string, description: string) => {
-      setItems((prev) => {
-        const next = [{ id: crypto.randomUUID(), title, description, createdAt: new Date().toISOString() }, ...prev];
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-        const unread = Number(localStorage.getItem(COUNT_KEY) || '0') + 1;
-        localStorage.setItem(COUNT_KEY, String(unread));
-        window.dispatchEvent(new Event('sn-notification-count-updated'));
-        return next;
-      });
-    };
-
-    socket.on('new_booking', () => add('New job request', 'A customer requested your service.'));
-    socket.on('booking_accepted', () => add('Booking accepted', 'Your worker accepted the booking.'));
-    socket.on('job_started', () => add('Job started', 'Worker has started your job.'));
-    socket.on('job_completed', () => add('Job completed', 'Please leave a rating and review.'));
-    socket.on('payment_confirmed', () => add('Payment success', 'Payment has been confirmed.'));
-
-    return () => {
-      socket.off('new_booking');
-      socket.off('booking_accepted');
-      socket.off('job_started');
-      socket.off('job_completed');
-      socket.off('payment_confirmed');
-    };
   }, []);
 
   const clearAll = () => {

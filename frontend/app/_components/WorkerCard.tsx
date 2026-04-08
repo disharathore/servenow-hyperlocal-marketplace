@@ -24,7 +24,7 @@ export default function WorkerCard({
   return (
     <motion.div whileHover={{ y: -2 }} transition={{ duration: 0.2 }}>
       <Link href={`/book/${id}`}>
-        <div className={`card p-4 flex gap-3 hover:shadow-md transition-shadow cursor-pointer ${!isAvailable ? 'opacity-60' : ''}`}>
+        <div className={`relative card p-4 flex gap-3 hover:shadow-md transition-shadow cursor-pointer ${!isAvailable ? 'opacity-60' : ''}`}>
           <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-blue-100 to-blue-200 flex items-center justify-center text-lg font-bold text-blue-600 flex-shrink-0">
             {name?.[0]?.toUpperCase() || 'W'}
           </div>

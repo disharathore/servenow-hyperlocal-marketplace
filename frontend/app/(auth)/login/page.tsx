@@ -58,8 +58,20 @@ export default function LoginPage() {
     try {
       await authApi.updateProfile({ role });
       const meRes = await authApi.me();
-      setName(meRes.data?.name || '');
-      setPincode(meRes.data?.pincode || '');
+      const meData = meRes.data;
+
+      if (meData.name && meData.pincode) {
+        setAuth(meData, tempToken);
+        router.push(role === 'worker' && !meData.worker_profile_id
+          ? '/worker/setup'
+          : role === 'worker'
+            ? '/worker/dashboard'
+            : '/');
+        return;
+      }
+
+      setName(meData.name || '');
+      setPincode(meData.pincode || '');
       setStep('profile');
     } catch {
       setError('Could not set your role. Try again.');

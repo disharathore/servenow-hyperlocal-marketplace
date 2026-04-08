@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { useAuthStore } from '@/lib/store';
+import { connectSocket } from '@/lib/socket';
 import { LogOut, Bell, Settings } from 'lucide-react';
 
 export default function RoleHeader() {
@@ -20,6 +21,66 @@ export default function RoleHeader() {
       window.removeEventListener('sn-notification-count-updated', readCount);
     };
   }, []);
+
+  useEffect(() => {
+    if (!user) return;
+
+    const socket = connectSocket();
+    const STORAGE_KEY = 'sn_notifications';
+    const COUNT_KEY = 'sn_notifications_unread_count';
+
+    const addNotification = (title: string, description: string) => {
+      let existing: Array<{ id: string; title: string; description: string; createdAt: string }> = [];
+      const saved = localStorage.getItem(STORAGE_KEY);
+
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed)) existing = parsed;
+        } catch {
+          localStorage.removeItem(STORAGE_KEY);
+        }
+      }
+
+      const next = [
+        {
+          id: crypto.randomUUID(),
+          title,
+          description,
+          createdAt: new Date().toISOString(),
+        },
+        ...existing,
+      ];
+
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+      const unread = Number(localStorage.getItem(COUNT_KEY) || '0') + 1;
+      localStorage.setItem(COUNT_KEY, String(unread));
+      window.dispatchEvent(new Event('sn-notification-count-updated'));
+    };
+
+    const onNewBooking = () => addNotification('New job request', 'A customer requested your service.');
+    const onBookingAccepted = () => addNotification('Booking accepted', 'Your worker accepted the booking.');
+    const onBookingRejected = () => addNotification('Booking rejected', 'Your booking was declined.');
+    const onJobStarted = () => addNotification('Job started', 'Worker has started your job.');
+    const onJobCompleted = () => addNotification('Job completed', 'Please leave a rating and review.');
+    const onPaymentConfirmed = () => addNotification('Payment success', 'Payment has been confirmed.');
+
+    socket.on('new_booking', onNewBooking);
+    socket.on('booking_accepted', onBookingAccepted);
+    socket.on('booking_rejected', onBookingRejected);
+    socket.on('job_started', onJobStarted);
+    socket.on('job_completed', onJobCompleted);
+    socket.on('payment_confirmed', onPaymentConfirmed);
+
+    return () => {
+      socket.off('new_booking', onNewBooking);
+      socket.off('booking_accepted', onBookingAccepted);
+      socket.off('booking_rejected', onBookingRejected);
+      socket.off('job_started', onJobStarted);
+      socket.off('job_completed', onJobCompleted);
+      socket.off('payment_confirmed', onPaymentConfirmed);
+    };
+  }, [user]);
 
   if (!user) return null;
 

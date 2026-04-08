@@ -7,7 +7,22 @@ import { requireAuth, requireRole } from '../middleware/auth';
 const router = Router();
 
 router.post('/setup', requireAuth, requireRole('worker'), async (req: Request, res: Response) => {
-  const schema = z.object({ category_id: z.string().uuid(), bio: z.string().min(10), experience_years: z.number().int().min(0).max(50), hourly_rate: z.number().int().min(100).max(10000), skills: z.array(z.string()).optional(), slots: z.array(z.object({ day_of_week: z.number().int().min(0).max(6), start_time: z.string(), end_time: z.string() })).min(1) });
+  const schema = z.object({
+    category_id: z.string().uuid(),
+    bio: z.string().min(10),
+    experience_years: z.number().int().min(0).max(50),
+    hourly_rate: z.number().int().min(100).max(10000),
+    skills: z.array(z.string()).optional(),
+    slots: z.array(
+      z.object({
+        day_of_week: z.number().int().min(0).max(6),
+        start_time: z.string().regex(/^\d{2}:\d{2}$/),
+        end_time: z.string().regex(/^\d{2}:\d{2}$/),
+      }).refine(s => s.start_time < s.end_time, {
+        message: 'end_time must be after start_time',
+      })
+    ).min(1)
+  });
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'Invalid data' });
   const { category_id, bio, experience_years, hourly_rate, skills, slots } = parsed.data;
