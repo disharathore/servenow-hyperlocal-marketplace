@@ -71,7 +71,6 @@ export default function ServiceListingPage() {
 
   useEffect(() => {
     if (!user) { router.push('/login'); return; }
-    if (user.role === 'worker') { router.push('/worker/dashboard'); return; }
     setCategory(String(params.category || ''));
   }, [user, params, router]);
 
@@ -188,6 +187,11 @@ export default function ServiceListingPage() {
           <Link href="/" className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 font-medium text-sm mb-4">
             ← Services
           </Link>
+          {user?.role === 'worker' && (
+            <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+              You are browsing as a worker. You can inspect services and pricing here, and use the worker dashboard for incoming jobs.
+            </div>
+          )}
           <h1 className="text-3xl font-bold text-gray-900 capitalize mb-2">{category}</h1>
           <p className="text-gray-600 text-sm">{filteredWorkers.length} verified professionals available</p>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-4">

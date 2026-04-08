@@ -8,6 +8,7 @@ import { ServiceError } from './serviceError';
 import { logger } from '../utils/logger';
 
 const razorpay = new Razorpay({ key_id: process.env.RAZORPAY_KEY_ID!, key_secret: process.env.RAZORPAY_KEY_SECRET! });
+const isDemoPaymentMode = process.env.PAYMENT_MODE === 'demo' || process.env.NODE_ENV === 'development';
 
 export async function createPaymentOrder(input: { bookingId: string; customerId: string }) {
   logger.info('payment_create_order_attempt', { bookingId: input.bookingId, customerId: input.customerId });
@@ -17,6 +18,13 @@ export async function createPaymentOrder(input: { bookingId: string; customerId:
 
   const held = await acquirePaymentHold(input.bookingId, input.customerId, 120);
   if (!held) throw new ServiceError(409, 'Payment session already active. Try again shortly.');
+
+  if (isDemoPaymentMode) {
+    const demoOrderId = `demo_order_${input.bookingId.slice(0, 12)}`;
+    await query('UPDATE bookings SET razorpay_order_id=$1 WHERE id=$2', [demoOrderId, input.bookingId]);
+    logger.info('payment_create_order_demo', { bookingId: input.bookingId, orderId: demoOrderId, amount: bRes.rows[0].amount });
+    return { order_id: demoOrderId, amount: bRes.rows[0].amount, currency: 'INR', key_id: 'demo', demo_mode: true };
+  }
 
   const order = await razorpay.orders.create({
     amount: bRes.rows[0].amount,
@@ -36,6 +44,25 @@ export async function verifyPayment(input: {
   booking_id: string;
 }) {
   logger.info('payment_verify_attempt', { bookingId: input.booking_id, orderId: input.razorpay_order_id });
+  if (isDemoPaymentMode) {
+    await query(`UPDATE bookings SET payment_status='paid', razorpay_payment_id=$1 WHERE id=$2`, [
+      input.razorpay_payment_id || `demo_payment_${input.booking_id.slice(0, 12)}`,
+      input.booking_id,
+    ]);
+    await releasePaymentHold(input.booking_id);
+    const b = await query('SELECT * FROM bookings WHERE id=$1', [input.booking_id]);
+    if (b.rows[0]) {
+      io.to(`worker:${b.rows[0].worker_id}`).emit('payment_confirmed', { booking_id: input.booking_id });
+      await createNotification({
+        userId: b.rows[0].customer_id,
+        type: 'payment_success',
+        message: 'Demo payment successful for your booking.',
+        bookingId: input.booking_id,
+      });
+    }
+    logger.info('payment_verify_demo_success', { bookingId: input.booking_id });
+    return { success: true, demo_mode: true };
+  }
   const expected = crypto
     .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET!)
     .update(`${input.razorpay_order_id}|${input.razorpay_payment_id}`)

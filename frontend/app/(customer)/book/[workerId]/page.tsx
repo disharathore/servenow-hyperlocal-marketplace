@@ -175,6 +175,17 @@ export default function BookPage() {
       const orderRes = await paymentsApi.createOrder(booking.id);
       const { order_id, amount, currency, key_id } = orderRes.data;
 
+      if (key_id === 'demo' || orderRes.data?.demo_mode) {
+        await paymentsApi.verify({
+          razorpay_order_id: order_id,
+          razorpay_payment_id: `demo_payment_${booking.id.slice(0, 12)}`,
+          razorpay_signature: 'demo_signature',
+          booking_id: booking.id,
+        });
+        router.push(`/booking/${booking.id}/confirmed`);
+        return;
+      }
+
       const rzp = new window.Razorpay({
         key: key_id,
         amount,

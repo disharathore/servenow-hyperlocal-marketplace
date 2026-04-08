@@ -17,6 +17,8 @@ services:
         value: 4000
       - key: OTP_MODE
         value: demo
+      - key: PAYMENT_MODE
+        value: demo
       - key: DATABASE_URL
         sync: false
       - key: REDIS_URL
