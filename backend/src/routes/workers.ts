@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { query } from '../db/client';
 import pool from '../db/client';
 import { requireAuth, requireRole } from '../middleware/auth';
+import { ensureMaterializedSlots } from './services';
 
 const router = Router();
 
@@ -114,7 +115,6 @@ router.get('/availability', requireAuth, requireRole('worker'), async (req, res)
   if (!workerId) return res.status(404).json({ error: 'Worker profile not found' });
 
   const workerAvailabilityEnabled = await hasWorkerAvailabilityTable();
-  const blockedSlotsEnabled = await hasBlockedSlotsTable();
 
   const recurring = workerAvailabilityEnabled
     ? await query(
@@ -125,19 +125,21 @@ router.get('/availability', requireAuth, requireRole('worker'), async (req, res)
       [workerId]
     )
     : { rows: [] as unknown[] };
-  const blocked = blockedSlotsEnabled
-    ? await query(
-      `SELECT id, date, time_slot
-       FROM blocked_slots
-       WHERE worker_id = $1 AND date >= CURRENT_DATE
-       ORDER BY date, time_slot`,
-      [workerId]
-    )
-    : { rows: [] as unknown[] };
-  return res.json({ recurring: recurring.rows, blocked: blocked.rows });
+
+  return res.json(recurring.rows);
 });
 
-router.put('/availability', requireAuth, requireRole('worker'), async (req, res) => {
+const availabilitySchema = z.object({
+  slots: z.array(
+    z.object({
+      day_of_week: z.number().int().min(0).max(6),
+      start_time: z.string().regex(/^\d{2}:\d{2}$/),
+      end_time: z.string().regex(/^\d{2}:\d{2}$/),
+    }).refine((s) => s.end_time > s.start_time, { message: 'end_time must be after start_time' })
+  ).min(1),
+});
+
+async function saveWorkerAvailability(req: Request, res: Response) {
   const schema = z.object({
     slots: z.array(
       z.object({
@@ -147,7 +149,7 @@ router.put('/availability', requireAuth, requireRole('worker'), async (req, res)
       }).refine((s) => s.start_time < s.end_time, { message: 'end_time must be after start_time' })
     ).min(1),
   });
-  const parsed = schema.safeParse(req.body);
+  const parsed = availabilitySchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'Invalid availability data' });
 
   const workerRes = await query('SELECT id FROM worker_profiles WHERE user_id = $1', [req.user!.userId]);
@@ -171,6 +173,12 @@ router.put('/availability', requireAuth, requireRole('worker'), async (req, res)
       }
     }
     await client.query('DELETE FROM availability_slots WHERE worker_id = $1 AND is_booked = false AND date >= CURRENT_DATE', [workerId]);
+
+    const fromDate = new Date();
+    const toDate = new Date();
+    toDate.setDate(fromDate.getDate() + 14);
+    await ensureMaterializedSlots(workerId, fromDate, toDate);
+
     await client.query('COMMIT');
     return res.json({ success: true });
   } catch (err) {
@@ -179,6 +187,19 @@ router.put('/availability', requireAuth, requireRole('worker'), async (req, res)
   } finally {
     client.release();
   }
+}
+
+router.post('/availability', requireAuth, requireRole('worker'), saveWorkerAvailability);
+router.put('/availability', requireAuth, requireRole('worker'), saveWorkerAvailability);
+
+router.delete('/availability', requireAuth, requireRole('worker'), async (req, res) => {
+  const workerRes = await query('SELECT id FROM worker_profiles WHERE user_id = $1', [req.user!.userId]);
+  const workerId = workerRes.rows[0]?.id;
+  if (!workerId) return res.status(404).json({ error: 'Worker profile not found' });
+  if (!(await hasWorkerAvailabilityTable())) return res.json({ success: true });
+
+  await query('DELETE FROM worker_availability WHERE worker_id = $1', [workerId]);
+  return res.json({ success: true });
 });
 
 router.post('/blocked-slots', requireAuth, requireRole('worker'), async (req, res) => {
@@ -215,6 +236,22 @@ router.post('/blocked-slots', requireAuth, requireRole('worker'), async (req, re
   } catch {
     return res.status(500).json({ error: 'Could not block slot' });
   }
+});
+
+router.get('/blocked-slots', requireAuth, requireRole('worker'), async (req, res) => {
+  const workerRes = await query('SELECT id FROM worker_profiles WHERE user_id = $1', [req.user!.userId]);
+  const workerId = workerRes.rows[0]?.id;
+  if (!workerId) return res.status(404).json({ error: 'Worker profile not found' });
+  if (!(await hasBlockedSlotsTable())) return res.json([]);
+
+  const blocked = await query(
+    `SELECT id, date, time_slot
+     FROM blocked_slots
+     WHERE worker_id = $1 AND date >= CURRENT_DATE
+     ORDER BY date, time_slot`,
+    [workerId]
+  );
+  return res.json(blocked.rows);
 });
 
 router.delete('/blocked-slots/:id', requireAuth, requireRole('worker'), async (req, res) => {

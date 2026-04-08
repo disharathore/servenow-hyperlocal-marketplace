@@ -19,7 +19,7 @@ function dateOnly(d: Date) {
   return d.toISOString().slice(0, 10);
 }
 
-async function ensureMaterializedSlots(workerId: string, fromDate: Date, toDate: Date) {
+export async function ensureMaterializedSlots(workerId: string, fromDate: Date, toDate: Date) {
   const availability = await query(
     'SELECT day_of_week, start_time, end_time FROM worker_availability WHERE worker_id = $1',
     [workerId]

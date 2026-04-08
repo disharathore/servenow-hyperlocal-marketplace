@@ -156,7 +156,8 @@ export const jobsApi = {
 };
 export const workerApi = {
 	getAvailability: () => api.get('/workers/availability'),
-	updateAvailability: (slots: Array<{ day_of_week: number; start_time: string; end_time: string }>) => api.put('/workers/availability', { slots }),
+	updateAvailability: (slots: Array<{ day_of_week: number; start_time: string; end_time: string }>) => api.post('/workers/availability', { slots }),
+	getBlockedSlots: () => api.get('/workers/blocked-slots'),
 	addBlockedSlot: (date: string, time_slot: string) => api.post('/workers/blocked-slots', { date, time_slot }),
 	removeBlockedSlot: (id: string) => api.delete(`/workers/blocked-slots/${id}`),
 };
@@ -171,7 +172,7 @@ export const adminApi = {
 	stats: () => api.get('/admin/stats'),
 	showcase: () => api.get('/admin/showcase'),
 	runDemoScenario: () => api.post('/admin/demo-scenario/run'),
-	bookings: (s?: string) => api.get('/admin/bookings', { params: s ? { status: s } : {} }),
+	bookings: (s?: string, realOnly?: boolean) => api.get('/admin/bookings', { params: { ...(s ? { status: s } : {}), ...(realOnly ? { real_only: true } : {}) } }),
 	workers: () => api.get('/admin/workers'),
 	disputes: () => api.get('/admin/disputes'),
 	resolveDispute: (id: string, resolution: 'completed' | 'cancelled') => api.patch(`/admin/bookings/${id}/resolve`, { resolution }),

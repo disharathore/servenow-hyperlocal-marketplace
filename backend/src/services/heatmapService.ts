@@ -222,7 +222,7 @@ export async function getSupplyDistribution() {
       MAX(wp.rating) as top_rating,
       MIN(wp.hourly_rate) as min_rate,
       MAX(wp.hourly_rate) as max_rate,
-      COUNT(DISTINCT COUNT(CASE WHEN as.is_booked = false THEN 1 END)) as available_slots_count
+      COUNT(CASE WHEN as.is_booked = false THEN 1 END) as available_slots_count
     FROM worker_profiles wp
     JOIN users u ON u.id = wp.user_id
     JOIN categories c ON c.id = wp.category_id

@@ -50,10 +50,11 @@ export default function WorkerAvailabilityPage() {
       return;
     }
 
-    workerApi.getAvailability()
-      .then((res) => {
-        const recurring = (res.data?.recurring || []) as WeeklySlot[];
-        const blockedSlots = (res.data?.blocked || []) as BlockedSlot[];
+    Promise.all([workerApi.getAvailability(), workerApi.getBlockedSlots()])
+      .then(([availabilityRes, blockedRes]) => {
+        const rawAvailability = availabilityRes.data;
+        const recurring = (Array.isArray(rawAvailability) ? rawAvailability : (rawAvailability?.recurring || [])) as WeeklySlot[];
+        const blockedSlots = (blockedRes.data || rawAvailability?.blocked || []) as BlockedSlot[];
         setSlots(recurring.map((x) => ({ ...x, start_time: String(x.start_time).slice(0, 5), end_time: String(x.end_time).slice(0, 5) })));
         setBlocked(blockedSlots);
       })

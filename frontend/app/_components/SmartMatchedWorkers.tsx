@@ -3,7 +3,6 @@
  * Displays ranked workers with scoring breakdown
  */
 
-import Image from 'next/image';
 import { Star, MapPin, TrendingUp, Award } from 'lucide-react';
 
 interface WorkerScore {
@@ -29,7 +28,7 @@ interface SmartMatchedWorkersProps {
 export function SmartMatchedWorkers({ workers, onSelectWorker }: SmartMatchedWorkersProps) {
   if (!workers.length) {
     return (
-      <div className="text-center py-8 text-muted">
+      <div className="text-center py-8 text-gray-500">
         <p>No workers available for this service</p>
       </div>
     );
@@ -39,10 +38,10 @@ export function SmartMatchedWorkers({ workers, onSelectWorker }: SmartMatchedWor
     <div className="space-y-4">
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-lg font-bold flex items-center gap-2">
-          <TrendingUp className="w-5 h-5 text-brand-600" />
+          <TrendingUp className="w-5 h-5 text-blue-600" />
           Best Matched Workers
         </h3>
-        <span className="text-sm text-muted">Ranked by match score</span>
+        <span className="text-sm text-gray-500">Ranked by match score</span>
       </div>
 
       {workers.map((worker, idx) => (
@@ -50,7 +49,7 @@ export function SmartMatchedWorkers({ workers, onSelectWorker }: SmartMatchedWor
           key={worker.worker_id}
           className="card p-4 border-l-4"
           style={{
-            borderLeftColor: idx === 0 ? 'var(--brand-600)' : idx === 1 ? '#fbbf24' : idx === 2 ? '#c0c7cf' : 'var(--border)',
+            borderLeftColor: idx === 0 ? '#2563eb' : idx === 1 ? '#fbbf24' : idx === 2 ? '#c0c7cf' : '#e5e7eb',
           }}
           onClick={() => onSelectWorker?.(worker.worker_id)}
           role="button"
@@ -59,11 +58,11 @@ export function SmartMatchedWorkers({ workers, onSelectWorker }: SmartMatchedWor
           <div className="flex gap-4">
             {/* Rank Badge */}
             <div className="flex flex-col items-center">
-              <div className="w-12 h-12 rounded-full bg-brand-100 flex items-center justify-center font-bold text-brand-700">
+              <div className="w-12 h-12 rounded-full bg-blue-100 flex items-center justify-center font-bold text-blue-700">
                 #{worker.rank}
               </div>
               {worker.badge && (
-                <span className="text-xs text-center mt-1 font-medium text-brand-600">{worker.badge}</span>
+                <span className="text-xs text-center mt-1 font-medium text-blue-600">{worker.badge}</span>
               )}
             </div>
 
@@ -71,12 +70,12 @@ export function SmartMatchedWorkers({ workers, onSelectWorker }: SmartMatchedWor
             <div className="flex-1">
               <div className="flex items-start justify-between mb-2">
                 <div>
-                  <p className="font-bold text-text">{worker.name}</p>
-                  <p className="text-sm text-muted">{worker.category_name}</p>
+                  <p className="font-bold text-gray-900">{worker.name}</p>
+                  <p className="text-sm text-gray-500">{worker.category_name}</p>
                 </div>
                 <div className="text-right">
-                  <p className="font-bold text-lg text-brand-600">₹{worker.hourly_rate}/hr</p>
-                  <p className="text-xs text-muted">Match: {worker.match_score}/100</p>
+                  <p className="font-bold text-lg text-blue-600">₹{worker.hourly_rate}/hr</p>
+                  <p className="text-xs text-gray-500">Match: {worker.match_score}/100</p>
                 </div>
               </div>
 
@@ -88,19 +87,19 @@ export function SmartMatchedWorkers({ workers, onSelectWorker }: SmartMatchedWor
                     <Star className="w-4 h-4 fill-yellow-400 text-yellow-400" />
                     <span className="font-medium ml-1">{worker.rating}</span>
                   </div>
-                  <span className="text-muted">({worker.rating_count})</span>
+                  <span className="text-gray-500">({worker.rating_count})</span>
                 </div>
 
                 {/* Distance */}
                 {worker.distance_km !== null && (
-                  <div className="flex items-center gap-1 text-muted">
+                  <div className="flex items-center gap-1 text-gray-500">
                     <MapPin className="w-4 h-4" />
                     <span>{worker.distance_km} km</span>
                   </div>
                 )}
 
                 {/* Availability */}
-                <div className="flex items-center gap-1 text-muted">
+                <div className="flex items-center gap-1 text-gray-500">
                   <Award className="w-4 h-4" />
                   <span>{Math.round(worker.availability_score)}% slots</span>
                 </div>
@@ -108,8 +107,8 @@ export function SmartMatchedWorkers({ workers, onSelectWorker }: SmartMatchedWor
 
               {/* Score Breakdown Bar */}
               <div className="space-y-1">
-                <div className="text-xs text-muted mb-1">Score breakdown:</div>
-                <div className="flex gap-1 h-2 rounded-full overflow-hidden bg-surface-2">
+                <div className="text-xs text-gray-500 mb-1">Score breakdown:</div>
+                <div className="flex gap-1 h-2 rounded-full overflow-hidden bg-gray-100">
                   <div
                     className="bg-yellow-400"
                     style={{ width: `${(worker.rating / 5) * 40}%` }}
@@ -128,7 +127,7 @@ export function SmartMatchedWorkers({ workers, onSelectWorker }: SmartMatchedWor
                     title="Availability"
                   />
                 </div>
-                <div className="flex justify-between text-xs text-muted">
+                <div className="flex justify-between text-xs text-gray-500">
                   <span>Rating</span>
                   <span>Distance</span>
                   <span>Availability</span>

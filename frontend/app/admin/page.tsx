@@ -115,6 +115,7 @@ export default function AdminPage() {
   const [scenarioId, setScenarioId] = useState('');
   const [scenarioRunning, setScenarioRunning] = useState(false);
   const [scenarioSteps, setScenarioSteps] = useState<ScenarioStepItem[]>([]);
+  const [showRealOnlyBookings, setShowRealOnlyBookings] = useState(false);
   const fetchedTabs = useRef<Set<string>>(new Set());
 
   const fetchStats = async () => {
@@ -245,7 +246,7 @@ export default function AdminPage() {
     setTabLoading(true);
     try {
       if (nextTab === 'bookings') {
-        const r = await adminApi.bookings();
+        const r = await adminApi.bookings(undefined, showRealOnlyBookings);
         setBookings(r.data as AdminBooking[]);
       }
       if (nextTab === 'workers') {
@@ -270,7 +271,7 @@ export default function AdminPage() {
 
   useEffect(() => {
     fetchTabData(tab);
-  }, [tab]);
+  }, [tab, showRealOnlyBookings]);
 
   const refreshCurrentTab = () => {
     fetchedTabs.current.delete(tab);
@@ -432,7 +433,26 @@ export default function AdminPage() {
             </div>
           </div>
         </div>}
-        {tab==='bookings' && <div className="space-y-3"><div className="flex justify-end"><button onClick={refreshCurrentTab} className="text-xs bg-blue-50 text-blue-700 border border-blue-200 px-2 py-1 rounded-lg">Refresh</button></div>{bookings.map((b) => <div key={b.id} className="card p-4"><div className="flex items-center justify-between mb-2"><div><p className="font-semibold text-gray-900 text-sm">{b.category_name}</p><p className="text-xs text-gray-400">{b.customer_name} → {b.worker_name}</p></div><div className="text-right"><span className={`badge badge-${b.status}`}>{b.status.replace('_',' ')}</span><p className="text-xs text-gray-400 mt-1">₹{Math.floor(b.amount/100)}</p></div></div><p className="text-xs text-gray-400">{new Date(b.scheduled_at).toLocaleString('en-IN')} · ID: {b.id.slice(0,8)}</p></div>)}</div>}
+        {tab==='bookings' && (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <label className="inline-flex items-center gap-2 text-sm text-gray-700">
+                <input
+                  type="checkbox"
+                  checked={showRealOnlyBookings}
+                  onChange={(e) => {
+                    fetchedTabs.current.delete('bookings');
+                    setShowRealOnlyBookings(e.target.checked);
+                  }}
+                  className="h-4 w-4 rounded border-gray-300"
+                />
+                Show real only
+              </label>
+              <button onClick={refreshCurrentTab} className="text-xs bg-blue-50 text-blue-700 border border-blue-200 px-2 py-1 rounded-lg">Refresh</button>
+            </div>
+            {bookings.map((b) => <div key={b.id} className="card p-4"><div className="flex items-center justify-between mb-2"><div><p className="font-semibold text-gray-900 text-sm">{b.category_name}</p><p className="text-xs text-gray-400">{b.customer_name} → {b.worker_name}</p></div><div className="text-right"><span className={`badge badge-${b.status}`}>{b.status.replace('_',' ')}</span><p className="text-xs text-gray-400 mt-1">₹{Math.floor(b.amount/100)}</p></div></div><p className="text-xs text-gray-400">{new Date(b.scheduled_at).toLocaleString('en-IN')} · ID: {b.id.slice(0,8)}</p></div>)}
+          </div>
+        )}
         {tab==='workers' && <div className="space-y-3">{workers.map((w) => <div key={w.id} className="card p-4 flex items-center gap-4"><div className="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-100 to-blue-200 flex items-center justify-center text-lg font-bold text-blue-600 flex-shrink-0">{w.name[0]}</div><div className="flex-1 min-w-0"><div className="flex items-center gap-1.5"><p className="font-semibold text-gray-900 text-sm">{w.name}</p>{w.is_background_verified&&<ShieldCheck size={14} className="text-green-500" />}</div><p className="text-xs text-gray-400">{w.category_name} · ⭐ {w.rating} · {w.total_jobs} jobs</p></div><div className="flex flex-col items-end gap-2"><span className={`text-xs font-medium ${w.is_available?'text-green-600':'text-gray-400'}`}>{w.is_available?'Online':'Offline'}</span><button onClick={()=>adminApi.verifyWorker(w.id, !w.is_background_verified).then(()=>setWorkers(ws=>ws.map(x=>x.id===w.id?{...x,is_background_verified:!x.is_background_verified}:x)))} className={`text-xs border px-2 py-1 rounded-lg ${w.is_background_verified ? 'bg-gray-50 text-gray-700 border-gray-200' : 'bg-green-50 text-green-700 border-green-200'}`}>{w.is_background_verified ? 'Revoke verification' : 'Approve verification'}</button></div></div>)}</div>}
         {tab==='users' && <div className="space-y-3"><div className="flex justify-end"><button onClick={refreshCurrentTab} className="text-xs bg-blue-50 text-blue-700 border border-blue-200 px-2 py-1 rounded-lg">Refresh</button></div>{users.map((u) => <div key={u.id} className="card p-4 flex items-center justify-between gap-3"><div><p className="font-semibold text-sm text-gray-900">{u.name || 'Unnamed user'} <span className="text-xs text-gray-400">({u.role})</span></p><p className="text-xs text-gray-500">{u.phone} · Joined {new Date(u.created_at).toLocaleDateString('en-IN')}</p></div><div className="flex items-center gap-2"><span className={`text-xs font-medium ${u.is_active ? 'text-green-700' : 'text-red-600'}`}>{u.is_active ? 'Active' : 'Banned'}</span><button onClick={() => adminApi.setUserBan(u.id, !u.is_active).then(() => setUsers((prev) => prev.map((x) => x.id === u.id ? { ...x, is_active: !x.is_active } : x)))} className={`text-xs border px-2 py-1 rounded-lg ${u.is_active ? 'bg-red-50 text-red-700 border-red-200' : 'bg-green-50 text-green-700 border-green-200'}`}>{u.is_active ? 'Ban user' : 'Unban user'}</button></div></div>)}</div>}
         {tab==='disputes' && <div className="space-y-3"><div className="flex justify-end"><button onClick={refreshCurrentTab} className="text-xs bg-blue-50 text-blue-700 border border-blue-200 px-2 py-1 rounded-lg">Refresh</button></div>{disputes.length === 0 ? <div className="card p-4 text-sm text-gray-500">No open disputes.</div> : disputes.map((d) => <div key={d.id} className="card p-4"><div className="flex items-center justify-between"><div><p className="font-semibold text-sm text-gray-900">{d.category_name}</p><p className="text-xs text-gray-500">{d.customer_name} vs {d.worker_name}</p></div><span className="badge bg-yellow-100 text-yellow-700">disputed</span></div><p className="text-xs text-gray-500 mt-2">Reason: {d.cancellation_reason || 'Customer raised issue'}</p><div className="mt-3 flex gap-2"><button onClick={() => adminApi.resolveDispute(d.id, 'completed').then(() => setDisputes((prev) => prev.filter((x) => x.id !== d.id)))} className="btn-primary text-sm py-2">Resolve as Completed</button><button onClick={() => adminApi.resolveDispute(d.id, 'cancelled').then(() => setDisputes((prev) => prev.filter((x) => x.id !== d.id)))} className="btn-secondary text-sm py-2">Resolve as Cancelled</button></div></div>)}</div>}

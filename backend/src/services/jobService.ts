@@ -67,7 +67,6 @@ export async function acceptBooking(bookingId: string, userId: string) {
 
   const transitioned = await transitionWorkerBooking(wId, bookingId, 'accepted');
   const booking = transitioned.booking;
-  await createNotification({ userId: booking.customer_id, type: 'worker_accepted', message: 'Your worker accepted the booking.', bookingId: booking.id });
   io.to(`customer:${booking.customer_id}`).emit('booking_accepted', { booking_id: booking.id });
   io.to('admin:dashboard').emit('admin:activity', {
     type: 'booking_accepted',

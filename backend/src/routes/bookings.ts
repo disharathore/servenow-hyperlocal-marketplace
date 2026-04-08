@@ -10,6 +10,8 @@ import {
   raiseDispute,
 } from '../services/bookingService';
 import { asServiceError } from '../services/serviceError';
+import { createNotification } from '../utils/notifications';
+import { query } from '../db/client';
 
 const router = Router();
 
@@ -96,6 +98,26 @@ router.patch('/:id/dispute', requireAuth, async (req, res) => {
 
   try {
     const updated = await raiseDispute({ bookingId: req.params.id, userId: req.user!.userId, reason });
+
+    const workerUserResult = await query('SELECT user_id FROM worker_profiles WHERE id = $1', [updated.worker_id]);
+    const workerUserId = workerUserResult.rows[0]?.user_id as string | undefined;
+
+    createNotification({
+      userId: updated.customer_id,
+      type: 'dispute_raised',
+      message: 'A dispute has been raised for your booking. Our team will review it shortly.',
+      bookingId: updated.id,
+    }).catch(console.error);
+
+    if (workerUserId) {
+      createNotification({
+        userId: workerUserId,
+        type: 'dispute_raised',
+        message: 'A dispute has been raised for this booking. Please wait for admin review.',
+        bookingId: updated.id,
+      }).catch(console.error);
+    }
+
     return res.json(updated);
   } catch (err) {
     const e = asServiceError(err, { requestId: req.requestId, route: 'PATCH /bookings/:id/dispute', bookingId: req.params.id });

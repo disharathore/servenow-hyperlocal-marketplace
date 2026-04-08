@@ -42,6 +42,7 @@ async function getDemandSupplyRatio(
     SELECT COALESCE(COUNT(*), 0) as demand
     FROM bookings b
     JOIN categories c ON c.id = b.category_id
+    JOIN users u_cust ON u_cust.id = b.customer_id
     WHERE c.id = $1
       AND b.status IN ('pending', 'accepted')
       AND DATE(b.scheduled_at) = CURRENT_DATE
@@ -54,13 +55,9 @@ async function getDemandSupplyRatio(
     WHERE c.id = $1 AND wp.is_available = true
   `;
 
-  const params: unknown[] = [categoryId];
-  let paramIndex = 2;
-
   if (pincode) {
-    demandSql += ` AND u.pincode = $${paramIndex++}`;
-    supplySql += ` JOIN users u ON u.id = wp.user_id WHERE u.pincode = $${paramIndex - 1}`;
-    params.push(pincode);
+    demandSql += ' AND u_cust.pincode = $2';
+    supplySql += ' AND EXISTS (SELECT 1 FROM users u WHERE u.id = wp.user_id AND u.pincode = $2)';
   }
 
   const demandResult = await query(demandSql, [categoryId, ...(pincode ? [pincode] : [])]);

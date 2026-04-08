@@ -13,7 +13,7 @@ const STATUS_STEPS = ['pending','accepted','arriving','in_progress','completed']
 const STATUS_LABELS: Record<string,string> = {
   pending: 'Waiting for worker to accept your booking',
   accepted: 'Worker accepted! They will start heading to you soon',
-  arriving: 'Worker is arriving at your location',
+  arriving: 'Worker accepted and is heading to you 🚗',
   in_progress: 'Worker is on the way to your location',
   completed: 'Job completed! 🎉',
   cancelled: 'Booking cancelled',

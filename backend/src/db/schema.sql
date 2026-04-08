@@ -136,6 +136,7 @@ CREATE TABLE bookings (
   refund_amount INT DEFAULT 0,
   refund_processed_at TIMESTAMPTZ,
   cancellation_reason TEXT,
+  is_simulated BOOLEAN DEFAULT false,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );

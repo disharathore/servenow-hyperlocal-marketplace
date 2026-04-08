@@ -104,8 +104,8 @@ async function createFakeBooking() {
       `INSERT INTO bookings (
         customer_id, worker_id, category_id, status,
         requested_at, scheduled_at, address, lat, lng,
-        amount, payment_status, description
-      ) VALUES ($1, $2, $3, 'pending', NOW(), $4, $5, $6, $7, $8, 'pending', $9)
+        amount, payment_status, description, is_simulated
+      ) VALUES ($1, $2, $3, 'pending', NOW(), $4, $5, $6, $7, $8, 'pending', $9, true)
        RETURNING id, customer_id, amount`,
       [
         customer.id,

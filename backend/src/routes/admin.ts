@@ -8,6 +8,7 @@ import { io } from '../index';
 const router = Router();
 const bookingListQuerySchema = z.object({
   status: z.enum(['pending', 'accepted', 'arriving', 'in_progress', 'completed', 'cancelled', 'disputed']).optional(),
+  real_only: z.coerce.boolean().optional().default(false),
   limit: z.coerce.number().int().min(1).max(200).optional().default(50),
   offset: z.coerce.number().int().min(0).optional().default(0),
 });
@@ -205,10 +206,20 @@ router.post('/demo-scenario/run', async (_req, res) => {
 router.get('/bookings', async (req, res) => {
   const parsed = bookingListQuerySchema.safeParse(req.query);
   if (!parsed.success) return res.status(400).json({ error: 'Invalid bookings query' });
-  const { status, limit, offset } = parsed.data;
+  const { status, real_only, limit, offset } = parsed.data;
   let sql = `SELECT b.*, cu.name as customer_name, wu.name as worker_name, c.name as category_name FROM bookings b JOIN users cu ON cu.id=b.customer_id JOIN worker_profiles wp ON wp.id=b.worker_id JOIN users wu ON wu.id=wp.user_id JOIN categories c ON c.id=b.category_id`;
   const params: unknown[] = [];
-  if (status) { sql += ' WHERE b.status=$1'; params.push(status); }
+  const whereClauses: string[] = [];
+  if (status) {
+    params.push(status);
+    whereClauses.push(`b.status=$${params.length}`);
+  }
+  if (real_only) {
+    whereClauses.push('(b.is_simulated = false OR b.is_simulated IS NULL)');
+  }
+  if (whereClauses.length) {
+    sql += ` WHERE ${whereClauses.join(' AND ')}`;
+  }
   sql += ` ORDER BY b.created_at DESC LIMIT $${params.length+1} OFFSET $${params.length+2}`; params.push(Number(limit),Number(offset));
   return res.json((await query(sql,params)).rows);
 });
