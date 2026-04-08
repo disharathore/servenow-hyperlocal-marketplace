@@ -19,6 +19,7 @@ export default function LoginPage() {
   const [tempToken, setTempToken] = useState('');
   const [tempRefreshToken, setTempRefreshToken] = useState('');
   const [liveBookings, setLiveBookings] = useState(1284);
+  const [demoOtp, setDemoOtp] = useState('');
 
   useEffect(() => {
     const id = window.setInterval(() => {
@@ -36,7 +37,13 @@ export default function LoginPage() {
     if (phone.length !== 10) return setError('Enter valid 10-digit number');
     setError(''); setLoading(true);
     try {
-      await authApi.sendOtp(phone);
+      const res = await authApi.sendOtp(phone);
+      const code = res.data?.dev_otp as string | undefined;
+      setDemoOtp(code || '');
+      if (code) {
+        setOtp(code);
+        toast.info(`Demo OTP: ${code}`);
+      }
       setStep('otp');
       toast.success('OTP sent successfully');
     }
@@ -359,7 +366,12 @@ export default function LoginPage() {
                 <div>
                   <label className="block text-sm font-semibold text-slate-700 mb-2">Enter OTP</label>
                   <input className="input tracking-[0.45em] text-center text-xl font-bold focus:ring-blue-200" type="text" placeholder="● ● ● ● ● ●" maxLength={6} value={otp} onChange={e => setOtp(e.target.value.replace(/\D/g,''))} autoFocus />
-                  <p className="text-xs text-slate-400 mt-2">Dev mode OTP: <strong>123456</strong></p>
+                  <p className="text-xs text-slate-400 mt-2">Demo OTP: <strong>123456</strong></p>
+                  {demoOtp && (
+                    <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700">
+                      Demo build code: <span className="font-bold tracking-[0.2em]">{demoOtp}</span>
+                    </p>
+                  )}
                 </div>
                 {error && <p className="text-red-600 text-sm">{error}</p>}
                 <button className="w-full rounded-lg bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-semibold py-3 shadow-md shadow-blue-200 transition-all duration-200 hover:scale-105 hover:shadow-lg hover:shadow-blue-300/60 hover:from-blue-700 hover:to-indigo-700 active:scale-[0.98] disabled:opacity-60 inline-flex items-center justify-center gap-2" type="submit" disabled={loading}>{loading ? 'Verifying…' : <><CheckCircle2 size={16} /> Verify OTP</>}</button>

@@ -10,6 +10,7 @@ import { resolvePincode } from '../utils/maps';
 import { demoDemoLogin } from '../services/demoService';
 
 const router = Router();
+const isDemoOtpMode = process.env.OTP_MODE === 'demo' || process.env.NODE_ENV === 'development';
 
 const refreshHash = (token: string) => crypto.createHash('sha256').update(token).digest('hex');
 
@@ -41,11 +42,11 @@ router.post('/send-otp', otpLimiter, async (req: Request, res: Response) => {
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'Invalid phone number' });
   const { phone } = parsed.data;
-  if (process.env.NODE_ENV === 'development') {
+  if (isDemoOtpMode) {
     try {
       await storeOtp(phone, '123456');
     } catch (err) {
-      console.warn('Dev OTP store failed, continuing with static fallback:', err);
+      console.warn('Demo OTP store failed, continuing with static fallback:', err);
     }
     return res.json({ success: true, dev_otp: '123456' });
   }
@@ -64,12 +65,12 @@ router.post('/verify-otp', otpVerifyLimiter, async (req: Request, res: Response)
     if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
     const { phone, otp, name, role } = parsed.data;
     let valid = false;
-    if (process.env.NODE_ENV === 'development') {
+    if (isDemoOtpMode) {
       try {
         const storedOtp = await getOtp(phone);
         valid = storedOtp === otp || otp === '123456';
       } catch (err) {
-        console.warn('Dev OTP verify fallback used because Redis read failed:', err);
+        console.warn('Demo OTP verify fallback used because Redis read failed:', err);
         valid = otp === '123456';
       }
     } else {
@@ -79,8 +80,8 @@ router.post('/verify-otp', otpVerifyLimiter, async (req: Request, res: Response)
     try {
       await deleteOtp(phone);
     } catch (err) {
-      if (process.env.NODE_ENV === 'development') {
-        console.warn('Dev OTP cleanup skipped because Redis delete failed:', err);
+      if (isDemoOtpMode) {
+        console.warn('Demo OTP cleanup skipped because Redis delete failed:', err);
       } else {
         throw err;
       }
