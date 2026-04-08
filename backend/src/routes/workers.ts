@@ -6,6 +6,23 @@ import { requireAuth, requireRole } from '../middleware/auth';
 
 const router = Router();
 
+let workerAvailabilityTableAvailable: boolean | null = null;
+let blockedSlotsTableAvailable: boolean | null = null;
+
+async function hasWorkerAvailabilityTable() {
+  if (workerAvailabilityTableAvailable !== null) return workerAvailabilityTableAvailable;
+  const result = await query("SELECT to_regclass('public.worker_availability') AS table_name");
+  workerAvailabilityTableAvailable = Boolean(result.rows[0]?.table_name);
+  return workerAvailabilityTableAvailable;
+}
+
+async function hasBlockedSlotsTable() {
+  if (blockedSlotsTableAvailable !== null) return blockedSlotsTableAvailable;
+  const result = await query("SELECT to_regclass('public.blocked_slots') AS table_name");
+  blockedSlotsTableAvailable = Boolean(result.rows[0]?.table_name);
+  return blockedSlotsTableAvailable;
+}
+
 router.post('/setup', requireAuth, requireRole('worker'), async (req: Request, res: Response) => {
   const schema = z.object({
     category_id: z.string().uuid(),
@@ -25,12 +42,15 @@ router.post('/setup', requireAuth, requireRole('worker'), async (req: Request, r
   });
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'Invalid data' });
-  const { category_id, bio, experience_years, hourly_rate, skills, slots } = parsed.data;
-  const categoryResult = await query('SELECT id FROM categories WHERE id = $1 AND is_active = true', [category_id]);
-  if (!categoryResult.rows[0]) return res.status(400).json({ error: 'Invalid category selected' });
-  const existing = await query('SELECT id FROM worker_profiles WHERE user_id=$1', [req.user!.userId]);
-  const client = await pool.connect();
   try {
+    const { category_id, bio, experience_years, hourly_rate, skills, slots } = parsed.data;
+    const categoryResult = await query('SELECT id FROM categories WHERE id = $1 AND is_active = true', [category_id]);
+    if (!categoryResult.rows[0]) return res.status(400).json({ error: 'Invalid category selected' });
+    const existing = await query('SELECT id FROM worker_profiles WHERE user_id=$1', [req.user!.userId]);
+    const workerAvailabilityEnabled = await hasWorkerAvailabilityTable();
+    const client = await pool.connect();
+
+    try {
     await client.query('BEGIN');
     let wId: string;
     if (existing.rows[0]) {
@@ -44,15 +64,17 @@ router.post('/setup', requireAuth, requireRole('worker'), async (req: Request, r
       for (const skill of skills) await client.query('INSERT INTO worker_skills (worker_id,skill) VALUES ($1,$2) ON CONFLICT DO NOTHING', [wId, skill]);
     }
 
-    await client.query('DELETE FROM worker_availability WHERE worker_id=$1', [wId]);
-    for (const slot of slots) {
-      await client.query(
-        `INSERT INTO worker_availability (worker_id, day_of_week, start_time, end_time)
-         VALUES ($1, $2, $3::time, $4::time)
-         ON CONFLICT (worker_id, day_of_week, start_time)
-         DO UPDATE SET end_time = EXCLUDED.end_time`,
-        [wId, slot.day_of_week, slot.start_time, slot.end_time]
-      );
+    if (workerAvailabilityEnabled) {
+      await client.query('DELETE FROM worker_availability WHERE worker_id=$1', [wId]);
+      for (const slot of slots) {
+        await client.query(
+          `INSERT INTO worker_availability (worker_id, day_of_week, start_time, end_time)
+           VALUES ($1, $2, $3::time, $4::time)
+           ON CONFLICT (worker_id, day_of_week, start_time)
+           DO UPDATE SET end_time = EXCLUDED.end_time`,
+          [wId, slot.day_of_week, slot.start_time, slot.end_time]
+        );
+      }
     }
 
     await client.query('DELETE FROM availability_slots WHERE worker_id=$1 AND is_booked=false AND date >= CURRENT_DATE', [wId]);
@@ -73,10 +95,17 @@ router.post('/setup', requireAuth, requireRole('worker'), async (req: Request, r
         );
       }
     }
-    await client.query('COMMIT');
-    return res.json({ success: true, worker_id: wId });
-  } catch (err) { await client.query('ROLLBACK'); throw err; }
-  finally { client.release(); }
+      await client.query('COMMIT');
+      return res.json({ success: true, worker_id: wId });
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+  } catch (err) {
+    return res.status(500).json({ error: err instanceof Error ? err.message : 'Setup failed' });
+  }
 });
 
 router.get('/availability', requireAuth, requireRole('worker'), async (req, res) => {
@@ -84,20 +113,27 @@ router.get('/availability', requireAuth, requireRole('worker'), async (req, res)
   const workerId = workerRes.rows[0]?.id;
   if (!workerId) return res.status(404).json({ error: 'Worker profile not found' });
 
-  const recurring = await query(
-    `SELECT day_of_week, to_char(start_time, 'HH24:MI') AS start_time, to_char(end_time, 'HH24:MI') AS end_time
-     FROM worker_availability
-     WHERE worker_id = $1
-     ORDER BY day_of_week, start_time`,
-    [workerId]
-  );
-  const blocked = await query(
-    `SELECT id, date, time_slot
-     FROM blocked_slots
-     WHERE worker_id = $1 AND date >= CURRENT_DATE
-     ORDER BY date, time_slot`,
-    [workerId]
-  );
+  const workerAvailabilityEnabled = await hasWorkerAvailabilityTable();
+  const blockedSlotsEnabled = await hasBlockedSlotsTable();
+
+  const recurring = workerAvailabilityEnabled
+    ? await query(
+      `SELECT day_of_week, to_char(start_time, 'HH24:MI') AS start_time, to_char(end_time, 'HH24:MI') AS end_time
+       FROM worker_availability
+       WHERE worker_id = $1
+       ORDER BY day_of_week, start_time`,
+      [workerId]
+    )
+    : { rows: [] as unknown[] };
+  const blocked = blockedSlotsEnabled
+    ? await query(
+      `SELECT id, date, time_slot
+       FROM blocked_slots
+       WHERE worker_id = $1 AND date >= CURRENT_DATE
+       ORDER BY date, time_slot`,
+      [workerId]
+    )
+    : { rows: [] as unknown[] };
   return res.json({ recurring: recurring.rows, blocked: blocked.rows });
 });
 
@@ -117,19 +153,22 @@ router.put('/availability', requireAuth, requireRole('worker'), async (req, res)
   const workerRes = await query('SELECT id FROM worker_profiles WHERE user_id = $1', [req.user!.userId]);
   const workerId = workerRes.rows[0]?.id;
   if (!workerId) return res.status(404).json({ error: 'Worker profile not found' });
+  const workerAvailabilityEnabled = await hasWorkerAvailabilityTable();
 
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    await client.query('DELETE FROM worker_availability WHERE worker_id = $1', [workerId]);
-    for (const slot of parsed.data.slots) {
-      await client.query(
-        `INSERT INTO worker_availability (worker_id, day_of_week, start_time, end_time)
-         VALUES ($1, $2, $3::time, $4::time)
-         ON CONFLICT (worker_id, day_of_week, start_time)
-         DO UPDATE SET end_time = EXCLUDED.end_time`,
-        [workerId, slot.day_of_week, slot.start_time, slot.end_time]
-      );
+    if (workerAvailabilityEnabled) {
+      await client.query('DELETE FROM worker_availability WHERE worker_id = $1', [workerId]);
+      for (const slot of parsed.data.slots) {
+        await client.query(
+          `INSERT INTO worker_availability (worker_id, day_of_week, start_time, end_time)
+           VALUES ($1, $2, $3::time, $4::time)
+           ON CONFLICT (worker_id, day_of_week, start_time)
+           DO UPDATE SET end_time = EXCLUDED.end_time`,
+          [workerId, slot.day_of_week, slot.start_time, slot.end_time]
+        );
+      }
     }
     await client.query('DELETE FROM availability_slots WHERE worker_id = $1 AND is_booked = false AND date >= CURRENT_DATE', [workerId]);
     await client.query('COMMIT');
@@ -153,6 +192,7 @@ router.post('/blocked-slots', requireAuth, requireRole('worker'), async (req, re
   const workerRes = await query('SELECT id FROM worker_profiles WHERE user_id = $1', [req.user!.userId]);
   const workerId = workerRes.rows[0]?.id;
   if (!workerId) return res.status(404).json({ error: 'Worker profile not found' });
+  if (!(await hasBlockedSlotsTable())) return res.status(501).json({ error: 'Blocked slots are not available in current database schema' });
 
   try {
     const inserted = await query(
@@ -181,6 +221,7 @@ router.delete('/blocked-slots/:id', requireAuth, requireRole('worker'), async (r
   const workerRes = await query('SELECT id FROM worker_profiles WHERE user_id = $1', [req.user!.userId]);
   const workerId = workerRes.rows[0]?.id;
   if (!workerId) return res.status(404).json({ error: 'Worker profile not found' });
+  if (!(await hasBlockedSlotsTable())) return res.status(501).json({ error: 'Blocked slots are not available in current database schema' });
 
   const deleted = await query(
     'DELETE FROM blocked_slots WHERE id = $1 AND worker_id = $2 RETURNING id',

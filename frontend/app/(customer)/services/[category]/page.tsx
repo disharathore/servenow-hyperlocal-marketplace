@@ -3,17 +3,21 @@ import { useEffect, useState } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { servicesApi } from '@/lib/api';
 import { useAuthStore } from '@/lib/store';
-import { Filter, X } from 'lucide-react';
+import { Filter, X, Search, MapPin, Sparkles } from 'lucide-react';
 import Link from 'next/link';
 import AppWrapperLayout from '@/app/_components/AppWrapperLayout';
 import { PageLoader } from '@/app/_components/LoadingStates';
 import WorkerCard from '@/app/_components/WorkerCard';
+import { SmartMatchedWorkers } from '@/app/_components/SmartMatchedWorkers';
+import { SurgePricingDisplay } from '@/app/_components/SurgePricingDisplay';
 import { motion, AnimatePresence } from 'framer-motion';
+import { toast } from 'sonner';
 
 interface Worker {
   id: string;
   user_id: string;
   name: string;
+  avatar_url?: string | null;
   rating: number;
   rating_count: number;
   hourly_rate: number;
@@ -46,15 +50,22 @@ export default function ServiceListingPage() {
   const [showFilters, setShowFilters] = useState(false);
   const [locationLoading, setLocationLoading] = useState(true);
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const [serviceQuery, setServiceQuery] = useState('');
+  const [locationQuery, setLocationQuery] = useState('');
+  const [sortBy, setSortBy] = useState<'nearest' | 'best_rated'>('nearest');
 
   // Filter states
   const [filters, setFilters] = useState({
     minRating: 0,
     maxPrice: 10000,
     maxDistance: 30,
-    verified: false,
-    available: true
+    verified: false
   });
+
+  const [smartWorkers, setSmartWorkers] = useState<any[]>([]);
+  const [pricingInfo, setPricingInfo] = useState<any>(null);
+  const [showSmartMatch, setShowSmartMatch] = useState(true);
+  const [smartMatchLoading, setSmartMatchLoading] = useState(false);
 
   type Filters = typeof filters;
 
@@ -84,43 +95,76 @@ export default function ServiceListingPage() {
     }
   }, [category]);
 
-  // Fetch workers
-  useEffect(() => {
+  const fetchWorkers = () => {
     if (!category || !userLocation) return;
 
     setError('');
-    servicesApi.workers({ category, lat: userLocation.lat, lng: userLocation.lng })
+    servicesApi.workers({
+      category,
+      lat: userLocation.lat,
+      lng: userLocation.lng,
+      search: serviceQuery || undefined,
+      location: locationQuery || undefined,
+      min_rating: filters.minRating,
+      max_price: filters.maxPrice,
+      max_distance: filters.maxDistance,
+      sort_by: sortBy,
+    })
       .then(r => {
         setWorkers(r.data);
-        setLoading(false);
-        applyFilters(r.data, filters);
-      })
-      .catch(() => {
-        setLoading(false);
-        setError('Unable to load workers right now. Please try again.');
-      });
-  }, [category, userLocation]);
-
-  const retryFetch = () => {
-    if (!category || !userLocation) return;
-    setLoading(true);
-    setError('');
-    servicesApi.workers({ category, lat: userLocation.lat, lng: userLocation.lng })
-      .then(r => {
-        setWorkers(r.data);
-        applyFilters(r.data, filters);
+        applyFilters(r.data, filters.verified);
       })
       .catch(() => setError('Unable to load workers right now. Please try again.'))
       .finally(() => setLoading(false));
   };
 
-  const applyFilters = (workersList: Worker[], currentFilters: Filters) => {
+  // Fetch smart matched workers and pricing info
+  const fetchSmartMatch = async () => {
+    if (!category || !userLocation) return;
+    
+    try {
+      setSmartMatchLoading(true);
+      const [smartRes, pricingRes] = await Promise.all([
+        servicesApi.smartMatch({ 
+          category, 
+          lat: userLocation.lat, 
+          lng: userLocation.lng,
+          limit: 5
+        }),
+        servicesApi.pricingInfo({ category })
+      ]);
+      
+      setSmartWorkers(smartRes.data || []);
+      setPricingInfo(pricingRes.data || null);
+    } catch (err) {
+      console.error('Failed to fetch smart match:', err);
+    } finally {
+      setSmartMatchLoading(false);
+    }
+  };
+
+  // Fetch workers when query/filter/sort changes
+  useEffect(() => {
+    if (!category || !userLocation) return;
+    setLoading(true);
+    const timer = window.setTimeout(() => fetchWorkers(), 250);
+    return () => window.clearTimeout(timer);
+  }, [category, userLocation, serviceQuery, locationQuery, sortBy, filters.minRating, filters.maxPrice, filters.maxDistance]);
+
+  // Fetch smart matched workers and pricing info
+  useEffect(() => {
+    if (!category || !userLocation) return;
+    fetchSmartMatch();
+  }, [category, userLocation]);
+
+  const retryFetch = () => {
+    setLoading(true);
+    fetchWorkers();
+  };
+
+  const applyFilters = (workersList: Worker[], verifiedOnly: boolean) => {
     const filtered = workersList.filter(w => 
-      w.rating >= currentFilters.minRating &&
-      w.hourly_rate <= currentFilters.maxPrice &&
-      ((w.distance_km ?? 0) <= currentFilters.maxDistance || w.distance_km == null) &&
-      (!currentFilters.verified || w.is_background_verified) &&
-      (!currentFilters.available || w.is_available)
+      (!verifiedOnly || w.is_background_verified)
     );
     setFilteredWorkers(filtered);
   };
@@ -128,8 +172,12 @@ export default function ServiceListingPage() {
   const handleFilterChange = (key: keyof Filters, value: Filters[keyof Filters]) => {
     const updated = { ...filters, [key]: value };
     setFilters(updated);
-    applyFilters(workers, updated);
+    applyFilters(workers, updated.verified);
   };
+
+  useEffect(() => {
+    applyFilters(workers, filters.verified);
+  }, [workers, filters.verified]);
 
   if (loading || locationLoading) return <PageLoader />;
 
@@ -142,6 +190,34 @@ export default function ServiceListingPage() {
           </Link>
           <h1 className="text-3xl font-bold text-gray-900 capitalize mb-2">{category}</h1>
           <p className="text-gray-600 text-sm">{filteredWorkers.length} verified professionals available</p>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-4">
+            <div className="relative">
+              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+              <input
+                value={serviceQuery}
+                onChange={(e) => setServiceQuery(e.target.value)}
+                placeholder="Search service or worker"
+                className="w-full rounded-xl border border-gray-200 bg-white pl-9 pr-3 py-2 text-sm focus:ring-2 focus:ring-blue-200 focus:outline-none"
+              />
+            </div>
+            <div className="relative">
+              <MapPin size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+              <input
+                value={locationQuery}
+                onChange={(e) => setLocationQuery(e.target.value)}
+                placeholder="City, locality, pincode"
+                className="w-full rounded-xl border border-gray-200 bg-white pl-9 pr-3 py-2 text-sm focus:ring-2 focus:ring-blue-200 focus:outline-none"
+              />
+            </div>
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as 'nearest' | 'best_rated')}
+              className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm focus:ring-2 focus:ring-blue-200 focus:outline-none"
+            >
+              <option value="nearest">Sort: Nearest</option>
+              <option value="best_rated">Sort: Best rated</option>
+            </select>
+          </div>
           <div className="mt-3 flex flex-wrap gap-2">
             {(SUBCATEGORY_MAP[category] || ['General service', 'Quick visit', 'Premium support']).map((item) => (
               <span key={item} className="text-xs font-medium bg-white text-gray-700 border border-gray-200 px-2.5 py-1 rounded-full">
@@ -231,22 +307,11 @@ export default function ServiceListingPage() {
                   <span className="text-sm font-medium text-gray-900">Verified only</span>
                 </label>
 
-                {/* Availability Filter */}
-                <label className="flex items-center gap-3 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={filters.available}
-                    onChange={e => handleFilterChange('available', e.target.checked)}
-                    className="w-4 h-4 accent-blue-600 rounded"
-                  />
-                  <span className="text-sm font-medium text-gray-900">Available now</span>
-                </label>
-
                 <button
                   onClick={() => {
-                    const cleared = { minRating: 0, maxPrice: 10000, maxDistance: 30, verified: false, available: true };
+                    const cleared = { minRating: 0, maxPrice: 10000, maxDistance: 30, verified: false };
                     setFilters(cleared);
-                    applyFilters(workers, cleared);
+                    applyFilters(workers, false);
                   }}
                   className="w-full text-sm text-blue-600 font-medium hover:bg-blue-50 py-2 rounded transition-colors"
                 >
@@ -268,6 +333,72 @@ export default function ServiceListingPage() {
               </button>
             </div>
 
+            {/* Pricing Info Section */}
+            {pricingInfo && (
+              <div className="mb-6">
+                <SurgePricingDisplay 
+                  pricing={pricingInfo}
+                  basePrice={pricingInfo.surgeMultiplier ? 100 : 100}
+                  finalPrice={Math.round(100 * pricingInfo.surgeMultiplier)}
+                />
+              </div>
+            )}
+
+            {/* Smart Matched Workers */}
+            {showSmartMatch && smartWorkers.length > 0 && (
+              <div className="mb-6">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-lg font-bold flex items-center gap-2">
+                    <Sparkles className="w-5 h-5 text-yellow-500" />
+                    Best Matched For You
+                  </h3>
+                  <button 
+                    onClick={() => setShowSmartMatch(false)}
+                    className="text-xs text-gray-500 hover:text-gray-700"
+                  >
+                    Hide
+                  </button>
+                </div>
+                <div className="grid grid-cols-1 gap-3">
+                  {smartWorkers.map((worker) => (
+                    <Link key={worker.id} href={`/book/${worker.id}`}>
+                      <div className="card p-4 hover:shadow-soft transition-all cursor-pointer border-l-4 border-yellow-400">
+                        <div className="flex items-start justify-between">
+                          <div className="flex-1">
+                            <p className="font-bold text-sm">{worker.name}</p>
+                            <p className="text-xs text-gray-500 mb-2">{worker.category_name}</p>
+                            <div className="flex gap-2 flex-wrap">
+                              <span className="text-xs bg-yellow-50 text-yellow-700 px-2 py-1 rounded">
+                                Match: {worker.matchScore}/100
+                              </span>
+                              <span className="text-xs bg-blue-50 text-blue-700 px-2 py-1 rounded">
+                                ⭐ {worker.rating} ({worker.rating_count} reviews)
+                              </span>
+                              {worker.distance_km && (
+                                <span className="text-xs bg-green-50 text-green-700 px-2 py-1 rounded">
+                                  📍 {worker.distance_km} km
+                                </span>
+                              )}
+                              {worker.badge && (
+                                <span className="text-xs bg-purple-50 text-purple-700 px-2 py-1 rounded">
+                                  {worker.badge}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          <div className="text-right ml-2">
+                            <p className="font-bold text-lg text-blue-600">₹{worker.hourly_rate}</p>
+                            <p className="text-xs text-gray-500">/hour</p>
+                          </div>
+                        </div>
+                      </div>
+                    </Link>
+                  ))}
+                </div>
+                <hr className="my-4 border-gray-200" />
+              </div>
+            )}
+
             {filteredWorkers.length === 0 ? (
               error ? (
                 <div className="card p-8 text-center">
@@ -286,33 +417,37 @@ export default function ServiceListingPage() {
               </div>
               )
             ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <AnimatePresence>
-                  {filteredWorkers.map((worker, idx) => (
-                    <motion.div
-                      key={worker.id}
-                      initial={{ opacity: 0, y: 20 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0 }}
-                      transition={{ delay: idx * 0.05 }}
-                    >
-                      <WorkerCard
-                        id={worker.id}
-                        name={worker.name}
-                        category={worker.category_name}
-                        rating={worker.rating}
-                        ratingCount={worker.rating_count}
-                        hourlyRate={worker.hourly_rate}
-                        totalJobs={worker.total_jobs}
-                        distanceKm={worker.distance_km ?? null}
-                        isVerified={worker.is_background_verified}
-                        locality={worker.locality || 'Nearby'}
-                        isAvailable={worker.is_available}
-                        experienceYears={worker.experience_years}
-                      />
-                    </motion.div>
-                  ))}
-                </AnimatePresence>
+              <div>
+                <p className="text-sm text-gray-600 mb-3">All available workers</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <AnimatePresence>
+                    {filteredWorkers.map((worker, idx) => (
+                      <motion.div
+                        key={worker.id}
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0 }}
+                        transition={{ delay: idx * 0.05 }}
+                      >
+                        <WorkerCard
+                          id={worker.id}
+                          name={worker.name}
+                          category={worker.category_name}
+                          avatarUrl={worker.avatar_url}
+                          rating={worker.rating}
+                          ratingCount={worker.rating_count}
+                          hourlyRate={worker.hourly_rate}
+                          totalJobs={worker.total_jobs}
+                          distanceKm={worker.distance_km ?? null}
+                          isVerified={worker.is_background_verified}
+                          locality={worker.locality || 'Nearby'}
+                          isAvailable={worker.is_available}
+                          experienceYears={worker.experience_years}
+                        />
+                      </motion.div>
+                    ))}
+                  </AnimatePresence>
+                </div>
               </div>
             )}
           </div>

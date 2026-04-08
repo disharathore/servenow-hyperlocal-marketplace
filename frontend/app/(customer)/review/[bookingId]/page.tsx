@@ -4,6 +4,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { reviewsApi } from '@/lib/api';
 import { useAuthStore } from '@/lib/store';
 import { Star, ArrowLeft } from 'lucide-react';
+import { toast } from 'sonner';
 
 export default function ReviewPage() {
   const { bookingId } = useParams() as { bookingId: string };
@@ -26,8 +27,15 @@ export default function ReviewPage() {
   async function handleSubmit() {
     if (rating === 0) return;
     setLoading(true);
-    try { await reviewsApi.submit({ booking_id: bookingId, rating, comment }); setSubmitted(true); setTimeout(() => router.push('/dashboard'), 2000); }
-    catch { alert('Failed to submit. You may have already reviewed this booking.'); }
+    try {
+      await reviewsApi.submit({ booking_id: bookingId, rating, comment });
+      toast.success('Review submitted successfully');
+      setSubmitted(true);
+      setTimeout(() => router.push('/dashboard'), 2000);
+    }
+    catch {
+      toast.error('Failed to submit. You may have already reviewed this booking.');
+    }
     finally { setLoading(false); }
   }
 

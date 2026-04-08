@@ -45,7 +45,12 @@ export default function BookingConfirmedPage() {
     <AppWrapperLayout>
       <div className="max-w-2xl mx-auto px-4 py-8">
         <div className="card p-6 text-center">
-          <p className="text-5xl mb-3">✅</p>
+          <div className="success-check mb-4" aria-hidden="true">
+            <svg viewBox="0 0 52 52">
+              <circle className="success-check-circle" cx="26" cy="26" r="24" fill="none" />
+              <path className="success-check-mark" fill="none" d="M14 27l8 8 16-16" />
+            </svg>
+          </div>
           <h1 className="text-2xl font-bold text-gray-900">Booking Confirmed</h1>
           <p className="text-gray-500 mt-2">Your payment was successful and the job is now assigned.</p>
 

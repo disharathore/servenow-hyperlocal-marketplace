@@ -2,9 +2,10 @@
 import { useEffect, useState } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { useAuthStore } from '@/lib/store';
-import { Toaster } from 'sonner';
 import { toast } from 'sonner';
 import { connectSocket } from '@/lib/socket';
+import { DemoModeBanner } from './DemoModeBanner';
+import { AnimatePresence, motion } from 'framer-motion';
 
 interface RoleBasedLayoutProps { children: React.ReactNode; }
 
@@ -75,8 +76,18 @@ export default function RoleBasedLayout({ children }: RoleBasedLayoutProps) {
 
   return (
     <>
-      {children}
-      <Toaster position="top-center" richColors />
+      <DemoModeBanner />
+      <AnimatePresence mode="wait" initial={false}>
+        <motion.div
+          key={pathname}
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -6 }}
+          transition={{ duration: 0.2, ease: 'easeOut' }}
+        >
+          {children}
+        </motion.div>
+      </AnimatePresence>
     </>
   );
 }

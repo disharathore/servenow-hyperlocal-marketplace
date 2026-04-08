@@ -4,7 +4,8 @@
   "scripts": {
     "dev": "bash ./scripts/dev-preflight.sh && ts-node-dev --respawn --transpile-only src/index.ts",
     "build": "tsc",
-    "start": "node dist/index.js"
+    "start": "node dist/index.js",
+    "seed": "ts-node seed.ts"
   },
   "dependencies": {
     "axios": "^1.6.8",
@@ -21,6 +22,7 @@
     "resend": "^3.2.0",
     "socket.io": "^4.7.5",
     "uuid": "^9.0.1",
+    "winston": "^3.19.0",
     "zod": "^3.23.0"
   },
   "devDependencies": {

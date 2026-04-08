@@ -3,123 +3,163 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { servicesApi } from '@/lib/api';
 import { useAuthStore } from '@/lib/store';
-import { Search, ChevronRight, MapPin } from 'lucide-react';
-import Link from 'next/link';
+import { Search, MapPin } from 'lucide-react';
 import AppWrapperLayout from '@/app/_components/AppWrapperLayout';
 import { SkeletonGrid } from '@/app/_components/LoadingStates';
-import { motion } from 'framer-motion';
+import { toast } from 'sonner';
+import WorkerCard from '@/app/_components/WorkerCard';
 
-interface Category { id: string; slug: string; name: string; icon: string; description: string; base_price: number; }
+type CategoryChip = 'all' | 'plumber' | 'electrician' | 'tutor';
+
+interface WorkerItem {
+  id: string;
+  name: string;
+  avatar_url?: string | null;
+  category_name: string;
+  category_slug: string;
+  rating?: number;
+  rating_count?: number;
+  hourly_rate: number;
+  total_jobs?: number;
+  is_background_verified?: boolean;
+  is_available?: boolean;
+  experience_years?: number;
+  distance_km?: number | null;
+  locality?: string | null;
+}
+
+const categoryChips: Array<{ slug: CategoryChip; label: string; icon: string }> = [
+  { slug: 'all', label: 'All', icon: '✨' },
+  { slug: 'plumber', label: 'Plumber', icon: '🔧' },
+  { slug: 'electrician', label: 'Electrician', icon: '⚡' },
+  { slug: 'tutor', label: 'Tutor', icon: '📚' },
+];
 
 export default function HomePage() {
   const router = useRouter();
   const { user } = useAuthStore();
-  const [categories, setCategories] = useState<Category[]>([]);
+  const [workers, setWorkers] = useState<WorkerItem[]>([]);
   const [search, setSearch] = useState('');
+  const [activeCategory, setActiveCategory] = useState<CategoryChip>('all');
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (!user) { router.push('/login'); return; }
     if (user.role === 'worker') { router.push('/worker/dashboard'); return; }
-    
-    servicesApi.categories()
-      .then(r => { setCategories(r.data); setLoading(false); })
-      .catch(() => { setLoading(false); });
-  }, [user, router]);
 
-  const filtered = categories.filter(c => 
-    c.name.toLowerCase().includes(search.toLowerCase()) || 
-    c.description.toLowerCase().includes(search.toLowerCase())
+    setLoading(true);
+    servicesApi.workers({
+      category: activeCategory === 'all' ? undefined : activeCategory,
+      search: search.trim() || undefined,
+      location: user.locality || user.city || undefined,
+    })
+      .then((r) => {
+        setWorkers(r.data as WorkerItem[]);
+      })
+      .catch(() => {
+        toast.error('Unable to load workers right now.');
+      })
+      .finally(() => setLoading(false));
+  }, [user, router, activeCategory, search]);
+
+  const filteredWorkers = workers.filter((w) =>
+    [w.name, w.category_name, w.locality || ''].join(' ').toLowerCase().includes(search.toLowerCase())
   );
 
   return (
     <AppWrapperLayout>
-      <div className="bg-gradient-to-r from-blue-600 via-blue-500 to-blue-700 text-white">
-        <div className="max-w-6xl mx-auto px-4 py-8 md:py-12">
-          <div className="mb-6">
-            <p className="text-blue-100 text-sm mb-1">Welcome back, {user?.name?.split(' ')[0] || 'there'} 👋</p>
-            <h1 className="text-3xl md:text-4xl font-bold mb-4">What service do you need?</h1>
-            <button className="inline-flex items-center gap-1 text-xs bg-white/20 px-3 py-1.5 rounded-full hover:bg-white/30 transition-colors">
-              <MapPin size={14} /> {user?.locality || user?.city || 'Set service location'}
-            </button>
-          </div>
-          
-          <div className="relative">
-            <Search size={20} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-300" />
-            <input
-              className="w-full pl-12 pr-4 py-3 rounded-xl text-gray-900 bg-white/95 placeholder-gray-400 text-base focus:outline-none focus:ring-2 focus:ring-white/30 backdrop-blur-sm"
-              placeholder="plumber, electrician, tutor, painter…"
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-            />
-          </div>
+      <div className="max-w-6xl mx-auto px-4 pt-5 pb-3">
+        <div className="mb-4">
+          <p className="text-gray-500 text-sm mb-1">Welcome back, {user?.name?.split(' ')[0] || 'there'}</p>
+          <h1 className="text-2xl md:text-3xl font-bold text-gray-900">Find your local expert</h1>
+          <p className="text-xs text-gray-500 mt-1 inline-flex items-center gap-1">
+            <MapPin size={13} /> {user?.locality || user?.city || 'Set service location'}
+          </p>
+        </div>
+      </div>
 
-          <div className="mt-6 flex gap-2 flex-wrap">
-            {['plumber', 'electrician', 'tutor', 'painter'].map(tag => (
-              <button
-                key={tag}
-                onClick={() => setSearch(tag)}
-                className="px-3 py-1.5 rounded-full text-xs font-medium bg-white/20 text-white hover:bg-white/30 transition-colors"
-              >
-                {tag}
-              </button>
-            ))}
+      <div className="sticky top-0 z-20 bg-[var(--surface)]/95 backdrop-blur border-y border-gray-100">
+        <div className="max-w-6xl mx-auto px-4 py-3">
+          <div className="relative">
+            <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
+            <input
+              className="input pl-11"
+              placeholder="Search workers, services, location"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
           </div>
         </div>
       </div>
 
-      <div className="max-w-6xl mx-auto px-4 py-8">
+      <div className="max-w-6xl mx-auto px-4 py-4">
+        <div className="flex gap-2 overflow-x-auto pb-2 no-scrollbar">
+          {categoryChips.map((chip) => (
+            <button
+              key={chip.slug}
+              onClick={() => setActiveCategory(chip.slug)}
+              className={`shrink-0 px-4 py-2 rounded-full text-sm font-medium border transition-colors ${
+                activeCategory === chip.slug
+                  ? 'bg-blue-600 text-white border-blue-600'
+                  : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'
+              }`}
+            >
+              <span className="mr-1">{chip.icon}</span>{chip.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="max-w-6xl mx-auto px-4 pb-8">
         <div>
-          <div className="flex items-center justify-between mb-4"><h2 className="text-xl font-bold text-gray-900">All Services</h2></div>
-          
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-bold text-gray-900">Available Workers</h2>
+          </div>
+
           {loading ? (
-            <SkeletonGrid count={8} />
-          ) : filtered.length === 0 ? (
+            <SkeletonGrid count={6} />
+          ) : filteredWorkers.length === 0 ? (
             <div className="text-center py-12 text-gray-400">
               <p className="text-4xl mb-3">🔍</p>
-              <p className="font-medium">No services found</p>
+              <p className="font-medium">No workers found</p>
             </div>
           ) : (
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-              {filtered.map((cat, idx) => (
-                <motion.div
-                  key={cat.id}
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: idx * 0.05 }}
-                >
-                  <Link href={`/services/${cat.slug}`}>
-                    <div className="card p-4 hover:shadow-md transition-all hover:-translate-y-1 cursor-pointer group">
-                      <div className="flex items-start justify-between mb-3">
-                        <span className="text-3xl">{cat.icon}</span>
-                        <ChevronRight size={16} className="text-gray-300 group-hover:text-blue-500 transition-colors" />
-                      </div>
-                      <p className="font-semibold text-gray-900 text-sm">{cat.name}</p>
-                      <p className="text-gray-400 text-xs mt-1 line-clamp-1">{cat.description}</p>
-                      <p className="text-blue-600 font-bold text-sm mt-2">From ₹{cat.base_price}</p>
-                    </div>
-                  </Link>
-                </motion.div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {filteredWorkers.map((worker) => (
+                <WorkerCard
+                  id={worker.id}
+                  name={worker.name}
+                  category={worker.category_name}
+                  avatarUrl={worker.avatar_url}
+                  rating={worker.rating ?? 0}
+                  ratingCount={worker.rating_count ?? 0}
+                  hourlyRate={worker.hourly_rate}
+                  totalJobs={worker.total_jobs ?? 0}
+                  distanceKm={worker.distance_km ?? null}
+                  isVerified={worker.is_background_verified ?? false}
+                  locality={worker.locality || 'Nearby'}
+                  isAvailable={worker.is_available ?? true}
+                  experienceYears={worker.experience_years ?? 1}
+                />
               ))}
             </div>
           )}
         </div>
+      </div>
 
-        <div className="mt-12 pt-8 border-t border-gray-200">
-          <h3 className="text-lg font-bold text-gray-900 mb-4">Why ServeNow?</h3>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {[
-              { icon: '✅', label: 'Verified workers', desc: 'Background checked professionals' },
-              { icon: '🔒', label: 'Secure payments', desc: 'Safe Razorpay checkout' },
-              { icon: '📍', label: 'Live tracking', desc: 'See your worker on the map' }
-            ].map(b => (
-              <div key={b.label} className="card p-4 text-center hover:shadow-md transition-shadow">
-                <div className="text-3xl mb-2">{b.icon}</div>
-                <p className="font-semibold text-gray-900 text-sm">{b.label}</p>
-                <p className="text-gray-500 text-xs mt-1">{b.desc}</p>
-              </div>
-            ))}
-          </div>
+      <div className="max-w-6xl mx-auto px-4 pb-10">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {[
+            { icon: '✅', label: 'Verified workers', desc: 'Background checked professionals' },
+            { icon: '🔒', label: 'Secure payments', desc: 'Safe checkout and support' },
+            { icon: '📍', label: 'Live tracking', desc: 'Track worker movement in real time' },
+          ].map((b) => (
+            <div key={b.label} className="rounded-xl shadow-md p-4 bg-white border border-gray-100 text-center">
+              <div className="text-2xl mb-2">{b.icon}</div>
+              <p className="font-semibold text-gray-900 text-sm">{b.label}</p>
+              <p className="text-gray-500 text-xs mt-1">{b.desc}</p>
+            </div>
+          ))}
         </div>
       </div>
     </AppWrapperLayout>

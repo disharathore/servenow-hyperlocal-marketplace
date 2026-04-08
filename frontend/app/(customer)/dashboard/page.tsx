@@ -94,7 +94,7 @@ export default function DashboardPage() {
               </div>
               <div className="flex items-center justify-between mt-2">
                 <span className="text-xs text-gray-400">₹{(b.amount/100).toFixed(0)} · {b.payment_status}</span>
-                {['accepted','in_progress'].includes(b.status) && <span className="text-xs text-blue-600 font-medium">Track live →</span>}
+                {['accepted','arriving','in_progress'].includes(b.status) && <span className="text-xs text-blue-600 font-medium">Track live →</span>}
               </div>
             </Link>
           ))}</div>

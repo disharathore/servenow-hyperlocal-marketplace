@@ -1,9 +1,19 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { query } from '../db/client';
-import { getDistanceKm } from '../utils/maps';
+import { getSmartMatchedWorkers } from '../services/matchingService';
+import { getPricingInfo, calculateSurgePrice } from '../services/pricingService';
 
 const router = Router();
+
+let blockedSlotsAvailable: boolean | null = null;
+
+async function hasBlockedSlotsTable() {
+  if (blockedSlotsAvailable !== null) return blockedSlotsAvailable;
+  const result = await query("SELECT to_regclass('public.blocked_slots') AS table_name");
+  blockedSlotsAvailable = Boolean(result.rows[0]?.table_name);
+  return blockedSlotsAvailable;
+}
 
 function dateOnly(d: Date) {
   return d.toISOString().slice(0, 10);
@@ -94,76 +104,157 @@ router.get('/categories', async (_req, res) => {
 });
 
 router.get('/workers', async (req: Request, res: Response) => {
-  const schema = z.object({ category: z.string().optional(), lat: z.coerce.number().optional(), lng: z.coerce.number().optional(), date: z.string().optional(), pincode: z.string().optional() });
+  const schema = z.object({
+    category: z.string().optional(),
+    lat: z.coerce.number().optional(),
+    lng: z.coerce.number().optional(),
+    date: z.string().optional(),
+    pincode: z.string().optional(),
+    search: z.string().optional(),
+    location: z.string().optional(),
+    min_rating: z.coerce.number().optional(),
+    max_price: z.coerce.number().optional(),
+    max_distance: z.coerce.number().optional(),
+    sort_by: z.enum(['nearest', 'best_rated']).optional(),
+  });
   const parsed = schema.safeParse(req.query);
   if (!parsed.success) return res.status(400).json({ error: 'Invalid query' });
-  const { category, lat, lng, date, pincode } = parsed.data;
+  const { category, lat, lng, date, pincode, search, location, min_rating, max_price, max_distance, sort_by } = parsed.data;
+
+  const hasGeo = typeof lat === 'number' && typeof lng === 'number';
+  const distanceExpr = hasGeo
+    ? `(6371 * acos(
+        cos(radians(${lat}))
+        * cos(radians(COALESCE(wp.current_lat, u.lat)))
+        * cos(radians(COALESCE(wp.current_lng, u.lng)) - radians(${lng}))
+        + sin(radians(${lat}))
+        * sin(radians(COALESCE(wp.current_lat, u.lat)))
+      ))`
+    : 'NULL';
+
   let sql = `SELECT wp.*, u.name, u.phone, u.avatar_url, u.city, u.locality, u.pincode, u.lat as user_lat, u.lng as user_lng,
     c.name as category_name, c.slug as category_slug, c.icon as category_icon, c.base_price
+    , ${distanceExpr} AS distance_km
     FROM worker_profiles wp JOIN users u ON u.id = wp.user_id JOIN categories c ON c.id = wp.category_id
     WHERE wp.is_available = true AND u.is_active = true`;
   const params: unknown[] = []; let idx = 1;
   if (category) { sql += ` AND c.slug = $${idx++}`; params.push(category); }
   if (pincode) { sql += ` AND u.pincode = $${idx++}`; params.push(pincode); }
+  if (search && search.trim()) {
+    sql += ` AND (
+      c.name ILIKE $${idx}
+      OR c.slug ILIKE $${idx}
+      OR u.name ILIKE $${idx}
+      OR COALESCE(wp.bio, '') ILIKE $${idx}
+    )`;
+    params.push(`%${search.trim()}%`);
+    idx += 1;
+  }
+  if (location && location.trim()) {
+    sql += ` AND (
+      COALESCE(u.city, '') ILIKE $${idx}
+      OR COALESCE(u.locality, '') ILIKE $${idx}
+      OR COALESCE(u.pincode, '') ILIKE $${idx}
+    )`;
+    params.push(`%${location.trim()}%`);
+    idx += 1;
+  }
+  if (typeof min_rating === 'number') {
+    sql += ` AND COALESCE(wp.rating, 0) >= $${idx++}`;
+    params.push(min_rating);
+  }
+  if (typeof max_price === 'number') {
+    sql += ` AND COALESCE(wp.hourly_rate, 0) <= $${idx++}`;
+    params.push(max_price);
+  }
+  if (hasGeo && typeof max_distance === 'number') {
+    sql += ` AND ${distanceExpr} <= $${idx++}`;
+    params.push(max_distance);
+  }
   if (date) {
-    sql += ` AND EXISTS (
-      SELECT 1
-      FROM availability_slots s
-      WHERE s.worker_id = wp.id
-        AND s.date = $${idx++}
-        AND s.is_booked = false
+    const blockedSlotsEnabled = await hasBlockedSlotsTable();
+    const blockedClause = blockedSlotsEnabled
+      ? `
         AND NOT EXISTS (
           SELECT 1
           FROM blocked_slots bs
           WHERE bs.worker_id = s.worker_id
             AND bs.date = s.date
             AND bs.time_slot = (to_char(s.start_time, 'HH24:MI') || '-' || to_char(s.end_time, 'HH24:MI'))
-        )
+        )`
+      : '';
+    sql += ` AND EXISTS (
+      SELECT 1
+      FROM availability_slots s
+      WHERE s.worker_id = wp.id
+        AND s.date = $${idx++}
+        AND s.is_booked = false${blockedClause}
     )`;
     params.push(date);
   }
-  sql += ' ORDER BY wp.rating DESC, wp.total_jobs DESC LIMIT 50';
-  const result = await query(sql, params);
-  let workers = result.rows;
-  if (lat && lng) {
-    workers = workers.map(w => ({ ...w, distance_km: w.user_lat && w.user_lng ? parseFloat(getDistanceKm({ lat, lng }, { lat: w.user_lat, lng: w.user_lng }).toFixed(1)) : null })).sort((a,b) => (a.distance_km??999)-(b.distance_km??999));
+  if (sort_by === 'nearest' && hasGeo) {
+    sql += ' ORDER BY distance_km ASC NULLS LAST, wp.rating DESC, wp.total_jobs DESC';
+  } else {
+    sql += ' ORDER BY wp.rating DESC, wp.total_jobs DESC, distance_km ASC NULLS LAST';
   }
+  sql += ' LIMIT 50';
+
+  const result = await query(sql, params);
+  const workers = result.rows.map((w) => ({
+    ...w,
+    distance_km: w.distance_km == null ? null : Number(Number(w.distance_km).toFixed(1)),
+  }));
   return res.json(workers);
 });
 
 router.get('/workers/:id', async (req, res) => {
+  const paramsSchema = z.object({ id: z.string().uuid() });
+  const parsed = paramsSchema.safeParse(req.params);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid worker id' });
   const r = await query(`SELECT wp.*, u.name, u.phone, u.avatar_url, u.city, u.locality, u.lat as user_lat, u.lng as user_lng,
     c.name as category_name, c.slug as category_slug, c.icon, c.base_price,
     COALESCE(json_agg(DISTINCT ws.skill) FILTER (WHERE ws.skill IS NOT NULL), '[]') as skills
     FROM worker_profiles wp JOIN users u ON u.id = wp.user_id JOIN categories c ON c.id = wp.category_id
     LEFT JOIN worker_skills ws ON ws.worker_id = wp.id WHERE wp.id = $1
-    GROUP BY wp.id, u.name, u.phone, u.avatar_url, u.city, u.locality, u.lat, u.lng, c.name, c.slug, c.icon, c.base_price`, [req.params.id]);
+    GROUP BY wp.id, u.name, u.phone, u.avatar_url, u.city, u.locality, u.lat, u.lng, c.name, c.slug, c.icon, c.base_price`, [parsed.data.id]);
   if (!r.rows[0]) return res.status(404).json({ error: 'Worker not found' });
   return res.json(r.rows[0]);
 });
 
 router.get('/workers/:id/slots', async (req, res) => {
-  const { date } = req.query;
+  const schema = z.object({
+    id: z.string().uuid(),
+    date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    hydrate: z.coerce.boolean().optional(),
+  });
+  const parsed = schema.safeParse({ ...req.params, ...req.query });
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid slots query' });
+  const { id, date, hydrate } = parsed.data;
   const fromDate = date ? new Date(`${String(date)}T00:00:00`) : new Date();
   const toDate = date ? new Date(`${String(date)}T00:00:00`) : new Date(Date.now() + 14 * 24 * 60 * 60 * 1000);
-  if (!Number.isNaN(fromDate.getTime()) && !Number.isNaN(toDate.getTime())) {
-    await ensureMaterializedSlots(req.params.id, fromDate, toDate);
+  if (hydrate && !Number.isNaN(fromDate.getTime()) && !Number.isNaN(toDate.getTime())) {
+    await ensureMaterializedSlots(id, fromDate, toDate);
   }
 
-  let sql = `
-    SELECT s.*
-    FROM availability_slots s
-    WHERE s.worker_id = $1
-      AND s.is_booked = false
-      AND s.date >= CURRENT_DATE
+  const blockedSlotsEnabled = await hasBlockedSlotsTable();
+  const blockedClause = blockedSlotsEnabled
+    ? `
       AND NOT EXISTS (
         SELECT 1
         FROM blocked_slots bs
         WHERE bs.worker_id = s.worker_id
           AND bs.date = s.date
           AND bs.time_slot = (to_char(s.start_time, 'HH24:MI') || '-' || to_char(s.end_time, 'HH24:MI'))
-      )`;
-  const params: unknown[] = [req.params.id];
+      )`
+    : '';
+
+  let sql = `
+    SELECT s.*
+    FROM availability_slots s
+    WHERE s.worker_id = $1
+      AND s.is_booked = false
+      AND s.date >= CURRENT_DATE${blockedClause}`;
+  const params: unknown[] = [id];
   if (date) { sql += ' AND date = $2'; params.push(date as string); }
   else { sql += " AND date <= CURRENT_DATE + INTERVAL '14 days'"; }
   sql += ' ORDER BY date, start_time';
@@ -171,8 +262,88 @@ router.get('/workers/:id/slots', async (req, res) => {
 });
 
 router.get('/workers/:id/reviews', async (req, res) => {
-  const r = await query(`SELECT r.*, u.name as customer_name FROM reviews r JOIN users u ON u.id = r.customer_id WHERE r.worker_id = $1 ORDER BY r.created_at DESC LIMIT 20`, [req.params.id]);
+  const paramsSchema = z.object({ id: z.string().uuid() });
+  const parsed = paramsSchema.safeParse(req.params);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid worker id' });
+  const r = await query(`SELECT r.*, u.name as customer_name FROM reviews r JOIN users u ON u.id = r.customer_id WHERE r.worker_id = $1 ORDER BY r.created_at DESC LIMIT 20`, [parsed.data.id]);
   return res.json(r.rows);
+});
+
+// Smart Matching - Get best matched workers for a category
+router.get('/smart-match', async (req: Request, res: Response) => {
+  const schema = z.object({
+    category: z.string(),
+    lat: z.coerce.number().optional(),
+    lng: z.coerce.number().optional(),
+    date: z.string().optional(),
+    pincode: z.string().optional(),
+    limit: z.coerce.number().optional().default(5),
+  });
+  const parsed = schema.safeParse(req.query);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid query parameters' });
+
+  try {
+    // Get category ID from slug
+    const catResult = await query('SELECT id FROM categories WHERE slug = $1 AND is_active = true', [parsed.data.category]);
+    if (!catResult.rows[0]) return res.status(404).json({ error: 'Category not found' });
+
+    const workers = await getSmartMatchedWorkers({
+      categoryId: catResult.rows[0].id,
+      lat: parsed.data.lat,
+      lng: parsed.data.lng,
+      date: parsed.data.date,
+      pincode: parsed.data.pincode,
+      limit: parsed.data.limit,
+    });
+
+    return res.json(workers);
+  } catch (err) {
+    console.error('Smart match error:', err);
+    return res.status(500).json({ error: 'Failed to find matched workers' });
+  }
+});
+
+// Pricing Info - Get surge pricing and demand info for a service
+router.get('/pricing-info', async (req: Request, res: Response) => {
+  const schema = z.object({
+    category: z.string(),
+    pincode: z.string().optional(),
+  });
+  const parsed = schema.safeParse(req.query);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid query parameters' });
+
+  try {
+    const catResult = await query('SELECT id FROM categories WHERE slug = $1 AND is_active = true', [parsed.data.category]);
+    if (!catResult.rows[0]) return res.status(404).json({ error: 'Category not found' });
+
+    const pricingInfo = await getPricingInfo(catResult.rows[0].id, parsed.data.pincode);
+    return res.json(pricingInfo);
+  } catch (err) {
+    console.error('Pricing info error:', err);
+    return res.status(500).json({ error: 'Failed to get pricing info' });
+  }
+});
+
+// Calculate final price - Get exact price for a booking
+router.post('/calculate-price', async (req: Request, res: Response) => {
+  const schema = z.object({
+    basePrice: z.number().positive(),
+    category: z.string(),
+    pincode: z.string().optional(),
+  });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid request body' });
+
+  try {
+    const catResult = await query('SELECT id FROM categories WHERE slug = $1 AND is_active = true', [parsed.data.category]);
+    if (!catResult.rows[0]) return res.status(404).json({ error: 'Category not found' });
+
+    const pricingData = await calculateSurgePrice(parsed.data.basePrice, catResult.rows[0].id, parsed.data.pincode);
+    return res.json(pricingData);
+  } catch (err) {
+    console.error('Calculate price error:', err);
+    return res.status(500).json({ error: 'Failed to calculate price' });
+  }
 });
 
 export default router;

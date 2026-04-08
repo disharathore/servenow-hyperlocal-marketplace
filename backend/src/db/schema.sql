@@ -1,7 +1,7 @@
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 CREATE TYPE user_role AS ENUM ('customer', 'worker', 'admin');
-CREATE TYPE job_status AS ENUM ('pending', 'accepted', 'in_progress', 'completed', 'cancelled', 'disputed');
+CREATE TYPE job_status AS ENUM ('pending', 'accepted', 'arriving', 'in_progress', 'completed', 'cancelled', 'disputed');
 CREATE TYPE payment_status AS ENUM ('pending', 'paid', 'refunded', 'failed');
 
 CREATE TABLE users (
@@ -64,6 +64,7 @@ CREATE TABLE worker_profiles (
   is_available BOOLEAN DEFAULT TRUE,
   is_background_verified BOOLEAN DEFAULT FALSE,
   total_jobs INT DEFAULT 0,
+  average_rating DECIMAL(3,2) DEFAULT 0.00,
   rating DECIMAL(3,2) DEFAULT 0.00,
   rating_count INT DEFAULT 0,
   current_lat DECIMAL(10,8),
@@ -115,21 +116,60 @@ CREATE TABLE bookings (
   category_id UUID NOT NULL REFERENCES categories(id),
   slot_id UUID REFERENCES availability_slots(id),
   status job_status NOT NULL DEFAULT 'pending',
+  requested_at TIMESTAMPTZ DEFAULT NOW(),
   description TEXT,
   address TEXT NOT NULL,
   lat DECIMAL(10,8),
   lng DECIMAL(11,8),
   scheduled_at TIMESTAMPTZ NOT NULL,
   accepted_at TIMESTAMPTZ,
+  arriving_at TIMESTAMPTZ,
   started_at TIMESTAMPTZ,
   completed_at TIMESTAMPTZ,
+  cancelled_at TIMESTAMPTZ,
   amount INT NOT NULL,
   payment_status payment_status DEFAULT 'pending',
   razorpay_order_id VARCHAR(100),
   razorpay_payment_id VARCHAR(100),
+  razorpay_refund_id VARCHAR(100),
+  refund_status VARCHAR(20) DEFAULT 'not_applicable',
+  refund_amount INT DEFAULT 0,
+  refund_processed_at TIMESTAMPTZ,
   cancellation_reason TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE booking_audit_logs (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  booking_id UUID NOT NULL REFERENCES bookings(id) ON DELETE CASCADE,
+  actor_user_id UUID REFERENCES users(id),
+  actor_role user_role,
+  action VARCHAR(100) NOT NULL,
+  from_status job_status,
+  to_status job_status,
+  reason TEXT,
+  metadata JSONB,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE notifications (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  type VARCHAR(50) NOT NULL,
+  message TEXT NOT NULL,
+  read_status BOOLEAN DEFAULT FALSE,
+  booking_id UUID REFERENCES bookings(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE refresh_tokens (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  token_hash TEXT NOT NULL,
+  expires_at TIMESTAMPTZ NOT NULL,
+  revoked_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE TABLE reviews (
@@ -145,11 +185,16 @@ CREATE TABLE reviews (
 CREATE INDEX idx_bookings_customer ON bookings(customer_id);
 CREATE INDEX idx_bookings_worker ON bookings(worker_id);
 CREATE INDEX idx_bookings_status ON bookings(status);
+CREATE INDEX idx_bookings_refund_status ON bookings(refund_status);
 CREATE INDEX idx_worker_profiles_category ON worker_profiles(category_id);
 CREATE INDEX idx_availability_slots_worker_date ON availability_slots(worker_id, date);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_availability_slots_worker_date_time_slot ON availability_slots(worker_id, date, start_time);
 CREATE INDEX idx_worker_availability_worker ON worker_availability(worker_id, day_of_week);
 CREATE INDEX idx_blocked_slots_worker_date ON blocked_slots(worker_id, date);
+CREATE INDEX idx_booking_audit_logs_booking ON booking_audit_logs(booking_id, created_at DESC);
+CREATE INDEX idx_notifications_user_created ON notifications(user_id, created_at DESC);
+CREATE INDEX idx_notifications_user_unread ON notifications(user_id, read_status);
+CREATE INDEX idx_refresh_tokens_user ON refresh_tokens(user_id, created_at DESC);
 
 CREATE OR REPLACE FUNCTION update_updated_at()
 RETURNS TRIGGER AS $$
@@ -159,5 +204,26 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+CREATE OR REPLACE FUNCTION refresh_worker_profile_rating()
+RETURNS TRIGGER AS $$
+DECLARE
+  target_worker_id UUID;
+BEGIN
+  target_worker_id := COALESCE(NEW.worker_id, OLD.worker_id);
+
+  UPDATE worker_profiles
+  SET
+    average_rating = COALESCE((SELECT ROUND(AVG(r.rating)::numeric, 2) FROM reviews r WHERE r.worker_id = target_worker_id), 0),
+    rating = COALESCE((SELECT ROUND(AVG(r.rating)::numeric, 2) FROM reviews r WHERE r.worker_id = target_worker_id), 0),
+    rating_count = (SELECT COUNT(*)::int FROM reviews r WHERE r.worker_id = target_worker_id)
+  WHERE id = target_worker_id;
+
+  RETURN COALESCE(NEW, OLD);
+END;
+$$ LANGUAGE plpgsql;
+
 CREATE TRIGGER trg_bookings_updated_at BEFORE UPDATE ON bookings FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 CREATE TRIGGER trg_users_updated_at BEFORE UPDATE ON users FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+CREATE TRIGGER trg_reviews_refresh_worker_rating
+AFTER INSERT OR UPDATE OR DELETE ON reviews
+FOR EACH ROW EXECUTE FUNCTION refresh_worker_profile_rating();

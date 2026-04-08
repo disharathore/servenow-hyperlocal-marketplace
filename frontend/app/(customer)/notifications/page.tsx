@@ -1,38 +1,49 @@
 'use client';
 import { useEffect, useState } from 'react';
 import AppWrapperLayout from '@/app/_components/AppWrapperLayout';
+import { connectSocket } from '@/lib/socket';
+import { notificationsApi } from '@/lib/api';
 
 interface NotificationItem {
   id: string;
-  title: string;
-  description: string;
-  createdAt: string;
+  type: string;
+  message: string;
+  read_status: boolean;
+  created_at: string;
 }
-
-const STORAGE_KEY = 'sn_notifications';
-const COUNT_KEY = 'sn_notifications_unread_count';
 
 export default function NotificationsPage() {
   const [items, setItems] = useState<NotificationItem[]>([]);
 
   useEffect(() => {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) {
-      try {
-        setItems(JSON.parse(saved));
-      } catch {
-        localStorage.removeItem(STORAGE_KEY);
-      }
-    }
-    localStorage.setItem(COUNT_KEY, '0');
-    window.dispatchEvent(new Event('sn-notification-count-updated'));
+    let mounted = true;
+    notificationsApi.list()
+      .then((r) => {
+        if (mounted) setItems(Array.isArray(r.data) ? r.data : []);
+      })
+      .catch(() => undefined);
+
+    notificationsApi.markAllRead()
+      .then(() => window.dispatchEvent(new Event('sn-notifications-read-all')))
+      .catch(() => undefined);
+
+    const socket = connectSocket();
+    const onNotification = (n: NotificationItem) => {
+      setItems((prev) => [n, ...prev]);
+    };
+
+    socket.on('notification:new', onNotification);
+
+    return () => {
+      mounted = false;
+      socket.off('notification:new', onNotification);
+    };
   }, []);
 
   const clearAll = () => {
     setItems([]);
-    localStorage.removeItem(STORAGE_KEY);
-    localStorage.setItem(COUNT_KEY, '0');
-    window.dispatchEvent(new Event('sn-notification-count-updated'));
+    notificationsApi.markAllRead().catch(() => undefined);
+    window.dispatchEvent(new Event('sn-notifications-read-all'));
   };
 
   return (
@@ -48,9 +59,9 @@ export default function NotificationsPage() {
           {items.length === 0 && <div className="card p-6 text-sm text-gray-500">No notifications yet.</div>}
           {items.map((n) => (
             <div key={n.id} className="card p-4">
-              <p className="font-semibold text-gray-900">{n.title}</p>
-              <p className="text-sm text-gray-600 mt-1">{n.description}</p>
-              <p className="text-xs text-gray-400 mt-2">{new Date(n.createdAt).toLocaleString('en-IN')}</p>
+              <p className="font-semibold text-gray-900 capitalize">{n.type.replaceAll('_', ' ')}</p>
+              <p className="text-sm text-gray-600 mt-1">{n.message}</p>
+              <p className="text-xs text-gray-400 mt-2">{new Date(n.created_at).toLocaleString('en-IN')}</p>
             </div>
           ))}
         </div>

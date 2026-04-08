@@ -1,9 +1,11 @@
 import type { Metadata, Viewport } from 'next';
-import { Inter } from 'next/font/google';
+import { Poppins, Space_Grotesk } from 'next/font/google';
 import './globals.css';
 import RoleBasedLayout from './_components/RoleBasedLayout';
+import GlobalToaster from './_components/GlobalToaster';
 
-const inter = Inter({ subsets: ['latin'], variable: '--font-sans' });
+const sans = Poppins({ subsets: ['latin'], weight: ['400', '500', '600', '700'], variable: '--font-sans' });
+const heading = Space_Grotesk({ subsets: ['latin'], variable: '--font-heading' });
 
 export const metadata: Metadata = {
   title: 'ServeNow — Local Services On Demand',
@@ -20,13 +22,14 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={inter.variable}>
+    <html lang="en" className={`${sans.variable} ${heading.variable}`}>
       <head>
         <link rel="manifest" href="/manifest.json" />
         <meta name="theme-color" content="#2563eb" />
       </head>
-      <body className="bg-gray-50 text-gray-900 antialiased">
+      <body className="text-gray-900 antialiased">
         <RoleBasedLayout>{children}</RoleBasedLayout>
+        <GlobalToaster />
       </body>
     </html>
   );

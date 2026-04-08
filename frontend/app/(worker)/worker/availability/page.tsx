@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { addMonths, eachDayOfInterval, endOfMonth, format, startOfMonth, startOfWeek, endOfWeek } from 'date-fns';
+import { addMonths, eachDayOfInterval, endOfMonth, format, isValid, startOfMonth, startOfWeek, endOfWeek } from 'date-fns';
 import AppWrapperLayout from '@/app/_components/AppWrapperLayout';
 import { workerApi } from '@/lib/api';
 import { useAuthStore } from '@/lib/store';
@@ -72,6 +72,13 @@ export default function WorkerAvailabilityPage() {
       .filter((s) => s.day_of_week === targetDow)
       .map((s) => `${s.start_time}-${s.end_time}`);
   }, [slots, selectedDate]);
+
+  function formatBlockedDate(value: string) {
+    const normalized = String(value || '').slice(0, 10);
+    const date = new Date(`${normalized}T00:00:00`);
+    if (!normalized || !isValid(date)) return 'Invalid date';
+    return format(date, 'EEE, dd MMM yyyy');
+  }
 
   async function saveRecurringAvailability() {
     setError('');
@@ -216,7 +223,7 @@ export default function WorkerAvailabilityPage() {
             <div className="space-y-2">
               {blocked.map((b) => (
                 <div key={b.id} className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2">
-                  <p className="text-sm text-gray-700">{format(new Date(`${b.date}T00:00:00`), 'EEE, dd MMM yyyy')} · {b.time_slot}</p>
+                  <p className="text-sm text-gray-700">{formatBlockedDate(b.date)} · {b.time_slot || 'All day'}</p>
                   <button type="button" className="text-sm text-red-600" onClick={() => removeBlockedSlot(b.id)}>Remove</button>
                 </div>
               ))}

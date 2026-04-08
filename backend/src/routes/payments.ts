@@ -1,70 +1,71 @@
 import { Router, Request, Response } from 'express';
-import Razorpay from 'razorpay';
-import crypto from 'crypto';
-import { query } from '../db/client';
+import { z } from 'zod';
 import { requireAuth } from '../middleware/auth';
-import { io } from '../index';
-import { acquirePaymentHold, releasePaymentHold } from '../db/redis';
+import {
+  createPaymentOrder,
+  verifyPayment,
+  releasePaymentSession,
+  processPaymentWebhook,
+} from '../services/paymentService';
+import { asServiceError } from '../services/serviceError';
 
 const router = Router();
-const razorpay = new Razorpay({ key_id: process.env.RAZORPAY_KEY_ID!, key_secret: process.env.RAZORPAY_KEY_SECRET! });
+const createOrderSchema = z.object({ booking_id: z.string().uuid() });
+const verifySchema = z.object({
+  razorpay_order_id: z.string().min(5),
+  razorpay_payment_id: z.string().min(5),
+  razorpay_signature: z.string().min(10),
+  booking_id: z.string().uuid(),
+});
+const releaseLockSchema = z.object({ booking_id: z.string().uuid() });
 
 router.post('/create-order', requireAuth, async (req: Request, res: Response) => {
-  const { booking_id } = req.body;
-  const bRes = await query('SELECT * FROM bookings WHERE id=$1 AND customer_id=$2', [booking_id, req.user!.userId]);
-  if (!bRes.rows[0]) return res.status(404).json({ error: 'Booking not found' });
-  if (bRes.rows[0].payment_status === 'paid') return res.status(400).json({ error: 'Already paid' });
-  const held = await acquirePaymentHold(booking_id, req.user!.userId, 120);
-  if (!held) return res.status(409).json({ error: 'Payment session already active. Try again shortly.' });
-  const order = await razorpay.orders.create({ amount: bRes.rows[0].amount, currency: 'INR', receipt: `bk_${booking_id.slice(0,16)}`, notes: { booking_id } });
-  await query('UPDATE bookings SET razorpay_order_id=$1 WHERE id=$2', [order.id, booking_id]);
-  return res.json({ order_id: order.id, amount: order.amount, currency: order.currency, key_id: process.env.RAZORPAY_KEY_ID });
+  const parsed = createOrderSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid payment order request' });
+  try {
+    const payload = await createPaymentOrder({ bookingId: parsed.data.booking_id, customerId: req.user!.userId });
+    return res.json(payload);
+  } catch (err) {
+    const e = asServiceError(err, { requestId: req.requestId, route: 'POST /payments/create-order' });
+    return res.status(e.status).json({ error: e.message });
+  }
 });
 
 router.post('/verify', requireAuth, async (req: Request, res: Response) => {
-  const { razorpay_order_id, razorpay_payment_id, razorpay_signature, booking_id } = req.body;
-  const expected = crypto.createHmac('sha256', process.env.RAZORPAY_KEY_SECRET!).update(`${razorpay_order_id}|${razorpay_payment_id}`).digest('hex');
-  if (expected !== razorpay_signature) return res.status(400).json({ error: 'Invalid signature' });
-  await query(`UPDATE bookings SET payment_status='paid', razorpay_payment_id=$1 WHERE id=$2`, [razorpay_payment_id, booking_id]);
-  await releasePaymentHold(booking_id);
-  const b = await query('SELECT * FROM bookings WHERE id=$1', [booking_id]);
-  if (b.rows[0]) io.to(`worker:${b.rows[0].worker_id}`).emit('payment_confirmed', { booking_id });
-  return res.json({ success: true });
+  const parsed = verifySchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid payment verification request' });
+  try {
+    const result = await verifyPayment(parsed.data);
+    return res.json(result);
+  } catch (err) {
+    const e = asServiceError(err, { requestId: req.requestId, route: 'POST /payments/verify', bookingId: parsed.data.booking_id });
+    return res.status(e.status).json({ error: e.message });
+  }
 });
 
 router.post('/release-lock', requireAuth, async (req: Request, res: Response) => {
-  const { booking_id } = req.body;
-  if (!booking_id) return res.status(400).json({ error: 'booking_id is required' });
-  const bRes = await query('SELECT * FROM bookings WHERE id=$1 AND customer_id=$2', [booking_id, req.user!.userId]);
-  if (!bRes.rows[0]) return res.status(404).json({ error: 'Booking not found' });
-  if (bRes.rows[0].payment_status !== 'paid') {
-    await query("UPDATE bookings SET payment_status='failed' WHERE id=$1 AND payment_status='pending'", [booking_id]);
+  const parsed = releaseLockSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid release-lock request' });
+  try {
+    const result = await releasePaymentSession({ bookingId: parsed.data.booking_id, customerId: req.user!.userId });
+    return res.json(result);
+  } catch (err) {
+    const e = asServiceError(err, { requestId: req.requestId, route: 'POST /payments/release-lock', bookingId: parsed.data.booking_id });
+    return res.status(e.status).json({ error: e.message });
   }
-  await releasePaymentHold(booking_id);
-  return res.json({ success: true });
 });
 
 router.post('/webhook', async (req: Request, res: Response) => {
-  const sig = req.headers['x-razorpay-signature'] as string;
-  const body = req.body as Buffer;
-  const expected = crypto.createHmac('sha256', process.env.RAZORPAY_WEBHOOK_SECRET!).update(body).digest('hex');
-  if (expected !== sig) return res.status(400).json({ error: 'Invalid signature' });
-  const event = JSON.parse(body.toString());
-  if (event.event === 'payment.captured') {
-    const notes = event.payload.payment.entity.notes;
-    if (notes?.booking_id) {
-      await query(`UPDATE bookings SET payment_status='paid' WHERE id=$1 AND payment_status!='paid'`, [notes.booking_id]);
-      await releasePaymentHold(notes.booking_id);
-    }
+  try {
+    const result = await processPaymentWebhook({
+      signature: req.headers['x-razorpay-signature'] as string,
+      body: req.body as Buffer,
+    });
+    return res.json(result);
+  } catch (err) {
+    const e = asServiceError(err, { requestId: req.requestId, route: 'POST /payments/webhook' });
+    return res.status(e.status).json({ error: e.message });
   }
-  if (event.event === 'payment.failed') {
-    const notes = event.payload.payment.entity.notes;
-    if (notes?.booking_id) {
-      await query("UPDATE bookings SET payment_status='failed' WHERE id=$1 AND payment_status='pending'", [notes.booking_id]);
-      await releasePaymentHold(notes.booking_id);
-    }
-  }
-  return res.json({ received: true });
 });
 
 export default router;

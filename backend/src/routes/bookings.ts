@@ -1,181 +1,106 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
-import { query } from '../db/client';
-import pool from '../db/client';
-import { acquireLock, releaseLock } from '../db/redis';
 import { requireAuth } from '../middleware/auth';
-import { geocodeAddress } from '../utils/maps';
-import { sendBookingConfirmation } from '../utils/resend';
-import { io } from '../index';
+import {
+  createBooking,
+  createAutoAssignedBooking,
+  listBookings,
+  getBookingById,
+  cancelBooking,
+  raiseDispute,
+} from '../services/bookingService';
+import { asServiceError } from '../services/serviceError';
 
 const router = Router();
 
 router.post('/', requireAuth, async (req: Request, res: Response) => {
-  const schema = z.object({ worker_id: z.string().uuid(), slot_id: z.string().uuid(), description: z.string().optional(), address: z.string().min(10) });
+  const schema = z.object({
+    worker_id: z.string().uuid().optional(),
+    slot_id: z.string().uuid().optional(),
+    category_id: z.string().uuid().optional(),
+    scheduled_at: z.string().datetime().optional(),
+    description: z.string().optional(),
+    address: z.string().min(10),
+  });
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'Invalid booking data' });
-  const { worker_id, slot_id, description, address } = parsed.data;
-  const locked = await acquireLock(`slot:${slot_id}`, 30);
-  if (!locked) return res.status(409).json({ error: 'Slot is being booked. Try again.' });
+
   try {
-    const workerResult = await query(`SELECT wp.*, c.name as category_name, c.id as category_id, u.name as worker_name FROM worker_profiles wp JOIN categories c ON c.id = wp.category_id JOIN users u ON u.id = wp.user_id WHERE wp.id = $1`, [worker_id]);
-    if (!workerResult.rows[0]) return res.status(404).json({ error: 'Worker not found' });
-    const worker = workerResult.rows[0];
-    const client = await pool.connect();
-    try {
-      await client.query('BEGIN');
-      const slotResult = await client.query(
-        'SELECT * FROM availability_slots WHERE id = $1 AND worker_id = $2 FOR UPDATE',
-        [slot_id, worker_id]
-      );
-      if (!slotResult.rows[0]) {
-        await client.query('ROLLBACK');
-        return res.status(404).json({ error: 'Slot not found' });
-      }
+    const isManualBooking = Boolean(parsed.data.worker_id && parsed.data.slot_id);
+    const isAutoBooking = Boolean(parsed.data.category_id);
 
-      const slot = slotResult.rows[0];
-      if (slot.is_booked) {
-        await client.query('ROLLBACK');
-        return res.status(409).json({ error: 'Slot already booked' });
-      }
-
-      const slotDate = Number.isNaN(new Date(slot.date).getTime())
-        ? String(slot.date).slice(0, 10)
-        : new Date(slot.date).toISOString().slice(0, 10);
-      const slotStart = String(slot.start_time).slice(0, 5);
-      const slotEnd = String(slot.end_time).slice(0, 5);
-      const slotLabel = `${slotStart}-${slotEnd}`;
-
-      const availabilityCheck = await client.query(
-        `SELECT 1
-         FROM worker_availability wa
-         WHERE wa.worker_id = $1
-           AND wa.day_of_week = EXTRACT(DOW FROM $2::date)::int
-           AND wa.start_time <= $3::time
-           AND wa.end_time >= $4::time
-         LIMIT 1`,
-        [worker_id, slotDate, slotStart, slotEnd]
-      );
-      if (!availabilityCheck.rows[0]) {
-        await client.query('ROLLBACK');
-        return res.status(409).json({ error: 'Selected slot is outside worker availability' });
-      }
-
-      const blockedCheck = await client.query(
-        'SELECT 1 FROM blocked_slots WHERE worker_id = $1 AND date = $2::date AND time_slot = $3 LIMIT 1',
-        [worker_id, slotDate, slotLabel]
-      );
-      if (blockedCheck.rows[0]) {
-        await client.query('ROLLBACK');
-        return res.status(409).json({ error: 'Slot already booked' });
-      }
-
-      const coords = await geocodeAddress(address);
-      const amount = worker.hourly_rate * 100;
-
-      const bookingResult = await client.query(
-        `INSERT INTO bookings (customer_id,worker_id,category_id,slot_id,description,address,lat,lng,scheduled_at,amount)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,($9::date + $10::time),$11)
-         RETURNING *`,
-        [req.user!.userId, worker_id, worker.category_id, slot_id, description||null, address, coords?.lat||null, coords?.lng||null, slotDate, slot.start_time, amount]
-      );
-      await client.query('UPDATE availability_slots SET is_booked = true WHERE id = $1', [slot_id]);
-      await client.query('COMMIT');
-      const booking = bookingResult.rows[0];
-
-      const customerResult = await query('SELECT name, email FROM users WHERE id = $1', [req.user!.userId]);
-      const customer = customerResult.rows[0];
-      if (customer?.email) {
-        sendBookingConfirmation({
-          customerName: customer.name || 'Customer',
-          customerEmail: customer.email,
-          workerName: worker.worker_name || 'Your worker',
-          category: worker.category_name,
-          scheduledAt: new Date(booking.scheduled_at).toLocaleString('en-IN'),
-          address,
-          bookingId: booking.id,
-          amount,
-        }).catch(console.error);
-      }
-
-      io.to(`worker:${worker_id}`).emit('new_booking', { booking_id: booking.id, category: worker.category_name, address, scheduled_at: booking.scheduled_at, amount });
-      return res.status(201).json(booking);
-    } catch (err: unknown) {
-      await client.query('ROLLBACK');
-      if (typeof err === 'object' && err !== null && 'code' in err && (err as { code?: string }).code === '23505') {
-        return res.status(409).json({ error: 'Slot already booked' });
-      }
-      throw err;
+    if (!isManualBooking && !isAutoBooking) {
+      return res.status(400).json({ error: 'Provide either worker_id+slot_id or category_id for auto assignment' });
     }
-    finally { client.release(); }
-  } finally { await releaseLock(`slot:${slot_id}`); }
+
+    const booking = isManualBooking
+      ? await createBooking({
+        customerId: req.user!.userId,
+        workerId: parsed.data.worker_id!,
+        slotId: parsed.data.slot_id!,
+        description: parsed.data.description,
+        address: parsed.data.address,
+      })
+      : await createAutoAssignedBooking({
+        customerId: req.user!.userId,
+        categoryId: parsed.data.category_id!,
+        description: parsed.data.description,
+        address: parsed.data.address,
+        scheduledAt: parsed.data.scheduled_at,
+      });
+
+    return res.status(201).json(booking);
+  } catch (err) {
+    const e = asServiceError(err, { requestId: req.requestId, route: 'POST /bookings' });
+    return res.status(e.status).json({ error: e.message });
+  }
 });
 
 router.get('/', requireAuth, async (req: Request, res: Response) => {
-  const { status } = req.query;
-  const user = req.user!;
-  const isWorker = user.role === 'worker';
-  let userIdValue = user.userId;
-  if (isWorker) {
-    const wp = await query('SELECT id FROM worker_profiles WHERE user_id = $1', [user.userId]);
-    if (!wp.rows[0]) return res.json([]);
-    userIdValue = wp.rows[0].id;
-  }
-  let sql = `SELECT b.*, cu.name as customer_name, cu.phone as customer_phone, wu.name as worker_name, wp.rating as worker_rating, c.name as category_name, c.icon as category_icon, c.slug as category_slug
-    FROM bookings b JOIN users cu ON cu.id = b.customer_id JOIN worker_profiles wp ON wp.id = b.worker_id JOIN users wu ON wu.id = wp.user_id JOIN categories c ON c.id = b.category_id
-    WHERE ${isWorker ? 'b.worker_id' : 'b.customer_id'} = $1`;
-  const params: unknown[] = [userIdValue];
-  if (status) { sql += ' AND b.status = $2'; params.push(status as string); }
-  sql += ' ORDER BY b.created_at DESC';
-  return res.json((await query(sql, params)).rows);
+  const schema = z.object({
+    status: z.enum(['pending', 'accepted', 'arriving', 'in_progress', 'completed', 'cancelled', 'disputed']).optional(),
+  });
+  const parsed = schema.safeParse(req.query);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid bookings query' });
+  const rows = await listBookings({ userId: req.user!.userId, role: req.user!.role, status: parsed.data.status });
+  return res.json(rows);
 });
 
 router.get('/:id', requireAuth, async (req, res) => {
-  const r = await query(`SELECT b.*, cu.name as customer_name, cu.phone as customer_phone, wu.name as worker_name, wu.phone as worker_phone, wp.current_lat as worker_lat, wp.current_lng as worker_lng, wp.rating as worker_rating, c.name as category_name, c.icon as category_icon
-    FROM bookings b JOIN users cu ON cu.id = b.customer_id JOIN worker_profiles wp ON wp.id = b.worker_id JOIN users wu ON wu.id = wp.user_id JOIN categories c ON c.id = b.category_id WHERE b.id = $1`, [req.params.id]);
-  if (!r.rows[0]) return res.status(404).json({ error: 'Booking not found' });
-  return res.json(r.rows[0]);
+  const booking = await getBookingById(req.params.id);
+  if (!booking) return res.status(404).json({ error: 'Booking not found' });
+  return res.json(booking);
 });
 
 router.patch('/:id/cancel', requireAuth, async (req, res) => {
-  const { reason } = req.body;
-  const booking = await query('SELECT * FROM bookings WHERE id = $1 AND customer_id = $2', [req.params.id, req.user!.userId]);
-  if (!booking.rows[0]) return res.status(404).json({ error: 'Booking not found' });
-  if (['completed','cancelled'].includes(booking.rows[0].status)) return res.status(400).json({ error: 'Cannot cancel this booking' });
-  await query(`UPDATE bookings SET status = 'cancelled', cancellation_reason = $1 WHERE id = $2`, [reason||null, req.params.id]);
-  if (booking.rows[0].slot_id) await query('UPDATE availability_slots SET is_booked = false WHERE id = $1', [booking.rows[0].slot_id]);
-  io.to(`worker:${booking.rows[0].worker_id}`).emit('booking_cancelled', { booking_id: req.params.id });
-  return res.json({ success: true });
+  const schema = z.object({ reason: z.string().max(500).optional() });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid cancel payload' });
+  try {
+    const result = await cancelBooking({
+      bookingId: req.params.id,
+      customerId: req.user!.userId,
+      actorRole: req.user!.role,
+      reason: parsed.data.reason,
+    });
+    return res.json(result);
+  } catch (err) {
+    const e = asServiceError(err, { requestId: req.requestId, route: 'PATCH /bookings/:id/cancel', bookingId: req.params.id });
+    return res.status(e.status).json({ error: e.message });
+  }
 });
 
 router.patch('/:id/dispute', requireAuth, async (req, res) => {
   const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim() : '';
   if (!reason || reason.length < 10) return res.status(400).json({ error: 'Please provide a dispute reason (min 10 chars)' });
 
-  const bookingResult = await query('SELECT * FROM bookings WHERE id = $1', [req.params.id]);
-  const booking = bookingResult.rows[0];
-  if (!booking) return res.status(404).json({ error: 'Booking not found' });
-  if (booking.status === 'disputed') return res.status(400).json({ error: 'Booking is already disputed' });
-
-  const isCustomer = booking.customer_id === req.user!.userId;
-  let isWorker = false;
-  if (!isCustomer) {
-    const workerProfile = await query('SELECT id FROM worker_profiles WHERE user_id = $1', [req.user!.userId]);
-    isWorker = workerProfile.rows[0]?.id === booking.worker_id;
+  try {
+    const updated = await raiseDispute({ bookingId: req.params.id, userId: req.user!.userId, reason });
+    return res.json(updated);
+  } catch (err) {
+    const e = asServiceError(err, { requestId: req.requestId, route: 'PATCH /bookings/:id/dispute', bookingId: req.params.id });
+    return res.status(e.status).json({ error: e.message });
   }
-  if (!isCustomer && !isWorker) return res.status(403).json({ error: 'Not allowed to dispute this booking' });
-
-  const updated = await query(
-    `UPDATE bookings
-     SET status = 'disputed', cancellation_reason = $2, updated_at = NOW()
-     WHERE id = $1
-     RETURNING *`,
-    [req.params.id, reason]
-  );
-
-  io.to(`worker:${booking.worker_id}`).emit('booking_disputed', { booking_id: req.params.id, reason });
-  io.to(`customer:${booking.customer_id}`).emit('booking_disputed', { booking_id: req.params.id, reason });
-  return res.json(updated.rows[0]);
 });
 
 export default router;

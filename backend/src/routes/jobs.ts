@@ -1,111 +1,101 @@
 import { Router } from 'express';
-import { query } from '../db/client';
-import pool from '../db/client';
+import { z } from 'zod';
 import { requireAuth, requireRole } from '../middleware/auth';
-import { io } from '../index';
-import { sendJobStartedNotification } from '../utils/resend';
+import {
+  getAvailableJobs,
+  acceptBooking,
+  rejectBooking,
+  markArriving,
+  startJob,
+  completeJob,
+  getWorkerEarnings,
+} from '../services/jobService';
+import { asServiceError } from '../services/serviceError';
 
 const router = Router();
+const bookingIdParamsSchema = z.object({ bookingId: z.string().uuid() });
+const rejectBodySchema = z.object({ reason: z.string().max(300).optional() });
 
-async function getWId(userId: string) { return (await query('SELECT id FROM worker_profiles WHERE user_id = $1', [userId])).rows[0]?.id || null; }
+router.get('/available', requireAuth, requireRole('worker'), async (req, res) => {
+  try {
+    const jobs = await getAvailableJobs(req.user!.userId);
+    return res.json(jobs);
+  } catch (err) {
+    const e = asServiceError(err, { requestId: req.requestId, route: 'GET /jobs/available' });
+    return res.status(e.status).json({ error: e.message });
+  }
+});
 
 router.post('/:bookingId/accept', requireAuth, requireRole('worker'), async (req, res) => {
-  const wId = await getWId(req.user!.userId);
-  if (!wId) return res.status(403).json({ error: 'Worker profile not found' });
-  const r = await query(`UPDATE bookings SET status='accepted', accepted_at=NOW() WHERE id=$1 AND worker_id=$2 AND status='pending' RETURNING *`, [req.params.bookingId, wId]);
-  if (!r.rows[0]) return res.status(404).json({ error: 'Booking not found' });
-  io.to(`customer:${r.rows[0].customer_id}`).emit('booking_accepted', { booking_id: r.rows[0].id });
-  return res.json(r.rows[0]);
+  const parsedParams = bookingIdParamsSchema.safeParse(req.params);
+  if (!parsedParams.success) return res.status(400).json({ error: 'Invalid booking id' });
+  try {
+    const booking = await acceptBooking(parsedParams.data.bookingId, req.user!.userId);
+    return res.json(booking);
+  } catch (err) {
+    const e = asServiceError(err, { requestId: req.requestId, route: 'POST /jobs/:bookingId/accept', bookingId: req.params.bookingId });
+    return res.status(e.status).json({ error: e.message });
+  }
 });
 
 router.post('/:bookingId/reject', requireAuth, requireRole('worker'), async (req, res) => {
-  const wId = await getWId(req.user!.userId);
-  if (!wId) return res.status(403).json({ error: 'Worker profile not found' });
-
-  const reason = typeof req.body?.reason === 'string' && req.body.reason.trim().length > 0
-    ? req.body.reason.trim()
-    : 'Rejected by worker';
-
-  const r = await query(
-    `UPDATE bookings
-     SET status='cancelled', cancellation_reason=$3, updated_at=NOW()
-     WHERE id=$1 AND worker_id=$2 AND status='pending'
-     RETURNING *`,
-    [req.params.bookingId, wId, reason]
-  );
-
-  if (!r.rows[0]) return res.status(404).json({ error: 'Pending booking not found' });
-
-  if (r.rows[0].slot_id) {
-    await query('UPDATE availability_slots SET is_booked=false WHERE id=$1', [r.rows[0].slot_id]);
+  const parsedParams = bookingIdParamsSchema.safeParse(req.params);
+  if (!parsedParams.success) return res.status(400).json({ error: 'Invalid booking id' });
+  const parsedBody = rejectBodySchema.safeParse(req.body);
+  if (!parsedBody.success) return res.status(400).json({ error: 'Invalid reject payload' });
+  try {
+    const booking = await rejectBooking(parsedParams.data.bookingId, req.user!.userId, parsedBody.data.reason);
+    return res.json(booking);
+  } catch (err) {
+    const e = asServiceError(err, { requestId: req.requestId, route: 'POST /jobs/:bookingId/reject', bookingId: req.params.bookingId });
+    return res.status(e.status).json({ error: e.message });
   }
+});
 
-  io.to(`customer:${r.rows[0].customer_id}`).emit('booking_rejected', {
-    booking_id: r.rows[0].id,
-    reason,
-  });
-
-  return res.json(r.rows[0]);
+router.post('/:bookingId/arriving', requireAuth, requireRole('worker'), async (req, res) => {
+  const parsedParams = bookingIdParamsSchema.safeParse(req.params);
+  if (!parsedParams.success) return res.status(400).json({ error: 'Invalid booking id' });
+  try {
+    const booking = await markArriving(parsedParams.data.bookingId, req.user!.userId);
+    return res.json(booking);
+  } catch (err) {
+    const e = asServiceError(err, { requestId: req.requestId, route: 'POST /jobs/:bookingId/arriving', bookingId: req.params.bookingId });
+    return res.status(e.status).json({ error: e.message });
+  }
 });
 
 router.post('/:bookingId/start', requireAuth, requireRole('worker'), async (req, res) => {
-  const wId = await getWId(req.user!.userId);
-  if (!wId) return res.status(403).json({ error: 'Worker profile not found' });
-  const r = await query(`UPDATE bookings SET status='in_progress', started_at=NOW() WHERE id=$1 AND worker_id=$2 AND status='accepted' RETURNING *`, [req.params.bookingId, wId]);
-  if (!r.rows[0]) return res.status(404).json({ error: 'Not in accepted state' });
-  const emailData = await query(
-    `SELECT cu.name AS customer_name, cu.email AS customer_email, wu.name AS worker_name
-     FROM bookings b
-     JOIN users cu ON cu.id = b.customer_id
-     JOIN worker_profiles wp ON wp.id = b.worker_id
-     JOIN users wu ON wu.id = wp.user_id
-     WHERE b.id = $1`,
-    [r.rows[0].id]
-  );
-  const row = emailData.rows[0];
-  if (row?.customer_email) {
-    sendJobStartedNotification({
-      customerEmail: row.customer_email,
-      customerName: row.customer_name || 'Customer',
-      workerName: row.worker_name || 'Your worker',
-      bookingId: r.rows[0].id,
-      trackingUrl: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/track/${r.rows[0].id}`,
-    }).catch(console.error);
+  const parsedParams = bookingIdParamsSchema.safeParse(req.params);
+  if (!parsedParams.success) return res.status(400).json({ error: 'Invalid booking id' });
+  try {
+    const booking = await startJob(parsedParams.data.bookingId, req.user!.userId);
+    return res.json(booking);
+  } catch (err) {
+    const e = asServiceError(err, { requestId: req.requestId, route: 'POST /jobs/:bookingId/start', bookingId: req.params.bookingId });
+    return res.status(e.status).json({ error: e.message });
   }
-  io.to(`customer:${r.rows[0].customer_id}`).emit('job_started', { booking_id: r.rows[0].id });
-  return res.json(r.rows[0]);
 });
 
 router.post('/:bookingId/complete', requireAuth, requireRole('worker'), async (req, res) => {
-  const wId = await getWId(req.user!.userId);
-  if (!wId) return res.status(403).json({ error: 'Worker profile not found' });
-  const client = await pool.connect();
+  const parsedParams = bookingIdParamsSchema.safeParse(req.params);
+  if (!parsedParams.success) return res.status(400).json({ error: 'Invalid booking id' });
   try {
-    await client.query('BEGIN');
-    const r = await client.query(`UPDATE bookings SET status='completed', completed_at=NOW() WHERE id=$1 AND worker_id=$2 AND status='in_progress' RETURNING *`, [req.params.bookingId, wId]);
-    if (!r.rows[0]) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Not in progress' }); }
-    await client.query('UPDATE worker_profiles SET total_jobs=total_jobs+1 WHERE id=$1', [wId]);
-    await client.query('COMMIT');
-    io.to(`customer:${r.rows[0].customer_id}`).emit('job_completed', { booking_id: r.rows[0].id });
-    return res.json(r.rows[0]);
-  } catch (err) { await client.query('ROLLBACK'); throw err; }
-  finally { client.release(); }
+    const booking = await completeJob(parsedParams.data.bookingId, req.user!.userId);
+    return res.json(booking);
+  } catch (err) {
+    const e = asServiceError(err, { requestId: req.requestId, route: 'POST /jobs/:bookingId/complete', bookingId: req.params.bookingId });
+    return res.status(e.status).json({ error: e.message });
+  }
 });
 
 router.get('/earnings', requireAuth, requireRole('worker'), async (req, res) => {
-  const wId = await getWId(req.user!.userId);
-  if (!wId) return res.status(404).json({ error: 'Worker profile not found' });
-  const r = await query(
-    `SELECT
-      COUNT(*)::int AS total_jobs,
-      COALESCE(SUM(amount), 0) AS total_earnings,
-      COALESCE(SUM(CASE WHEN DATE_TRUNC('month', completed_at) = DATE_TRUNC('month', NOW()) THEN amount ELSE 0 END), 0) AS this_month,
-      COALESCE(SUM(CASE WHEN DATE_TRUNC('week', completed_at) = DATE_TRUNC('week', NOW()) THEN amount ELSE 0 END), 0) AS this_week
-     FROM bookings
-     WHERE worker_id = $1 AND status = 'completed'`,
-    [wId]
-  );
-  return res.json(r.rows[0]);
+  try {
+    const earnings = await getWorkerEarnings(req.user!.userId);
+    return res.json(earnings);
+  } catch (err) {
+    const e = asServiceError(err, { requestId: req.requestId, route: 'GET /jobs/earnings' });
+    return res.status(e.status).json({ error: e.message });
+  }
 });
 
 export default router;
