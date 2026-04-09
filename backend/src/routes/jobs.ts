@@ -12,7 +12,6 @@ import {
 } from '../services/jobService';
 import { asServiceError } from '../services/serviceError';
 import { createNotification } from '../utils/notifications';
-import { query } from '../db/client';
 
 const router = Router();
 const bookingIdParamsSchema = z.object({ bookingId: z.string().uuid() });
@@ -33,13 +32,10 @@ router.post('/:bookingId/accept', requireAuth, requireRole('worker'), async (req
   if (!parsedParams.success) return res.status(400).json({ error: 'Invalid booking id' });
   try {
     const booking = await acceptBooking(parsedParams.data.bookingId, req.user!.userId);
-
-    const categoryResult = await query('SELECT name FROM categories WHERE id = $1', [booking.category_id]);
-    const categoryName = categoryResult.rows[0]?.name || 'service';
     createNotification({
       userId: booking.customer_id,
       type: 'booking_accepted',
-      message: `Your ${categoryName} booking has been accepted. The worker is on the way soon.`,
+      message: 'Your booking has been accepted. The worker will be on their way soon.',
       bookingId: booking.id,
     }).catch(console.error);
 
@@ -84,7 +80,7 @@ router.post('/:bookingId/start', requireAuth, requireRole('worker'), async (req,
     createNotification({
       userId: booking.customer_id,
       type: 'job_started',
-      message: 'Your worker has started and is heading to your location.',
+      message: 'Your worker is on the way. You can track them live.',
       bookingId: booking.id,
     }).catch(console.error);
     return res.json(booking);
@@ -102,7 +98,7 @@ router.post('/:bookingId/complete', requireAuth, requireRole('worker'), async (r
     createNotification({
       userId: booking.customer_id,
       type: 'job_completed',
-      message: 'Job completed! Please rate your experience.',
+      message: 'Job done! Please take a moment to rate your experience.',
       bookingId: booking.id,
     }).catch(console.error);
     return res.json(booking);
