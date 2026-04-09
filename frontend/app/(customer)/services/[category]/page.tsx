@@ -365,8 +365,7 @@ export default function ServiceListingPage() {
                 </div>
                 <div className="grid grid-cols-1 gap-3">
                   {smartWorkers.map((worker) => (
-                    <Link key={worker.id} href={`/book/${worker.id}`}>
-                      <div className="card p-4 hover:shadow-soft transition-all cursor-pointer border-l-4 border-yellow-400">
+                    <div key={worker.id} className="card p-4 hover:shadow-soft transition-all border-l-4 border-yellow-400">
                         <div className="flex items-start justify-between">
                           <div className="flex-1">
                             <p className="font-bold text-sm">{worker.name}</p>
@@ -393,10 +392,12 @@ export default function ServiceListingPage() {
                           <div className="text-right ml-2">
                             <p className="font-bold text-lg text-blue-600">₹{worker.hourly_rate}</p>
                             <p className="text-xs text-gray-500">/hour</p>
+                            <Link href={`/book/${worker.id}`} className="inline-block mt-2 text-xs font-semibold text-blue-700 hover:underline">
+                              Book Now
+                            </Link>
                           </div>
                         </div>
                       </div>
-                    </Link>
                   ))}
                 </div>
                 <hr className="my-4 border-gray-200" />
