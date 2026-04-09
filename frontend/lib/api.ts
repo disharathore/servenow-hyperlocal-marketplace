@@ -80,8 +80,9 @@ api.interceptors.response.use(
 		const url = originalConfig.url || '';
 		const isAuthBootstrapRequest = url.includes('/auth/send-otp') || url.includes('/auth/verify-otp');
 		const isRefreshRequest = url.includes('/auth/refresh');
+ 		const isLogoutRequest = url.includes('/auth/logout');
 
-		if (status !== 401 || originalConfig._retry || isRefreshRequest || isAuthBootstrapRequest) {
+		if (status !== 401 || originalConfig._retry || isRefreshRequest || isLogoutRequest || isAuthBootstrapRequest) {
 			const code = err?.code as string | undefined;
 			const isTimeout = code === 'ECONNABORTED' || code === 'ETIMEDOUT';
 			const isNetworkIssue = !err?.response;
