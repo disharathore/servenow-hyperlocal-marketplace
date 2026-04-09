@@ -223,12 +223,18 @@ Use the full step-by-step checklist in [FREE_DEPLOYMENT.md](FREE_DEPLOYMENT.md).
 
 ## Screenshots
 
-Latest live screenshots captured from the deployed app:
+### Customer Features
 
-![Login (Live)](frontend/public/screenshots/login-live.png)
-![Home (Live)](frontend/public/screenshots/home-live.png)
-![Architecture (Live)](frontend/public/screenshots/architecture-live.png)
-![Admin (Live)](frontend/public/screenshots/admin-live.png)
+![Customer Home](frontend/public/screenshots/customer-home.png)
+*Smart service discovery and location-based matching*
+
+![Services & Workers](frontend/public/screenshots/services-category.png)
+*Browse workers by category with smart matching scores*
+
+### Worker Features
+
+![Worker Dashboard](frontend/public/screenshots/worker-dashboard.png)
+*Available jobs and real-time notifications*
 
 Current committed visual assets:
 
