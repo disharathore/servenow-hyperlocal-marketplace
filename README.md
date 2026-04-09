@@ -223,23 +223,12 @@ Use the full step-by-step checklist in [FREE_DEPLOYMENT.md](FREE_DEPLOYMENT.md).
 
 ## Screenshots
 
-Project screenshots are not yet committed in this repository.
+Latest live screenshots captured from the deployed app:
 
-Recommended screenshot paths to add:
-
-- `frontend/public/screenshots/login.png`
-- `frontend/public/screenshots/customer-booking.png`
-- `frontend/public/screenshots/worker-dashboard.png`
-- `frontend/public/screenshots/admin-dashboard.png`
-
-Once added, embed them in README like this:
-
-```md
-![Login](frontend/public/screenshots/login.png)
-![Customer Booking](frontend/public/screenshots/customer-booking.png)
-![Worker Dashboard](frontend/public/screenshots/worker-dashboard.png)
-![Admin Dashboard](frontend/public/screenshots/admin-dashboard.png)
-```
+![Login (Live)](frontend/public/screenshots/login-live.png)
+![Home (Live)](frontend/public/screenshots/home-live.png)
+![Architecture (Live)](frontend/public/screenshots/architecture-live.png)
+![Admin (Live)](frontend/public/screenshots/admin-live.png)
 
 Current committed visual assets:
 
