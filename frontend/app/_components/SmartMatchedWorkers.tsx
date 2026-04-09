@@ -47,9 +47,9 @@ export function SmartMatchedWorkers({ workers, onSelectWorker }: SmartMatchedWor
       {workers.map((worker, idx) => (
         <div
           key={worker.worker_id}
-          className="card p-4 border-l-4"
+          className="rounded-xl bg-white p-4 border-l-4 shadow-sm hover:shadow-md transition-all cursor-pointer border-gray-200"
           style={{
-            borderLeftColor: idx === 0 ? '#2563eb' : idx === 1 ? '#fbbf24' : idx === 2 ? '#c0c7cf' : '#e5e7eb',
+            borderLeftColor: idx === 0 ? '#2563eb' : idx === 1 ? '#fbbf24' : idx === 2 ? '#9ca3af' : '#e5e7eb',
           }}
           onClick={() => onSelectWorker?.(worker.worker_id)}
           role="button"
@@ -58,7 +58,7 @@ export function SmartMatchedWorkers({ workers, onSelectWorker }: SmartMatchedWor
           <div className="flex gap-4">
             {/* Rank Badge */}
             <div className="flex flex-col items-center">
-              <div className="w-12 h-12 rounded-full bg-blue-100 flex items-center justify-center font-bold text-blue-700">
+              <div className="w-12 h-12 rounded-full bg-blue-50 flex items-center justify-center font-bold text-blue-700">
                 #{worker.rank}
               </div>
               {worker.badge && (
