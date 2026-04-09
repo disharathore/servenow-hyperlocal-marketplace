@@ -223,18 +223,21 @@ Use the full step-by-step checklist in [FREE_DEPLOYMENT.md](FREE_DEPLOYMENT.md).
 
 ## Screenshots
 
-### Customer Features
+### 1. Login & Authentication
+![Login Page](frontend/public/screenshots/01-login.png)
+*OTP-based authentication with demo mode for quick testing*
 
-![Customer Home](frontend/public/screenshots/customer-home.png)
-*Smart service discovery and location-based matching*
+### 2. Customer - Browse & Search
+![Customer Home](frontend/public/screenshots/02-customer-home.png)
+*Discover local experts filtered by category, location, and ratings*
 
-![Services & Workers](frontend/public/screenshots/services-category.png)
-*Browse workers by category with smart matching scores*
+### 3. Customer - Booking & Payment
+![Booking Flow](frontend/public/screenshots/03-booking-flow.png)
+*Select date, time, confirm details, and pay securely*
 
-### Worker Features
-
-![Worker Dashboard](frontend/public/screenshots/worker-dashboard.png)
-*Available jobs and real-time notifications*
+### 4. Worker - Manage Availability
+![Worker Dashboard](frontend/public/screenshots/04-worker-availability.png)
+*Set weekly availability and block specific time slots*
 
 Current committed visual assets:
 
