@@ -221,30 +221,7 @@ Use the full step-by-step checklist in [FREE_DEPLOYMENT.md](FREE_DEPLOYMENT.md).
 
 ---
 
-## Screenshots
 
-### 1. Login & Authentication
-![Login Page](frontend/public/screenshots/01-login.png)
-*OTP-based authentication with demo mode for quick testing*
-
-### 2. Customer - Browse & Search
-![Customer Home](frontend/public/screenshots/02-customer-home.png)
-*Discover local experts filtered by category, location, and ratings*
-
-### 3. Customer - Booking & Payment
-![Booking Flow](frontend/public/screenshots/03-booking-flow.png)
-*Select date, time, confirm details, and pay securely*
-
-### 4. Worker - Manage Availability
-![Worker Dashboard](frontend/public/screenshots/04-worker-availability.png)
-*Set weekly availability and block specific time slots*
-
-Current committed visual assets:
-
-![App Icon 192](frontend/public/icon-192.png)
-![App Icon 512](frontend/public/icon-512.png)
-
----
 
 ## Demo Flow (Recruiter / Interview Ready)
 
